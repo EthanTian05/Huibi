@@ -22,33 +22,37 @@
 
 这是"绍兴大学-大模型实训"小组项目（Langchain+LLM+LangGraph智能体方向），团队4人，工期4天。详细的立项理由、需求对照表、架构设计、数据/模型方案、4天分工、答辩材料全部在 `Docs/` 目录下，**开始写代码前请先完整读一遍 `Docs/00-项目总览.md` 和 `Docs/01-系统架构与Agent设计.md`**。
 
-当前进度：本仓库目前只有规划文档，尚未开始写实际源代码（Day 1 的第一件事就是按 `Docs/RUNNING.md` 里的目标结构把骨架建起来）。
+当前进度（Day1已完成脚手架）：`src/`、`app.py`已经是真代码，不再只是文档。已实现：`EssayReviewState`、DeepSeek/GLM双供应商LLM封装（含fallback）、7个LangGraph节点（`intake_validator`真实校验、`feedback_agent`/`coach_agent`真实调用DeepSeek、`retrieval_agent`/`scoring_tool`/`grammar_check`是Day2占位实现）、SQLite读写、数据清洗/EDA/预处理脚本、RAG建库脚本+KB种子内容、Streamlit四页面UI。**本仓库当前开发环境`pip install`被网络环境挡住**（详情见"环境信息"），所以LangGraph/Streamlit相关代码只做了语法检查，没能实际跑起来；不依赖这些包的部分（intake校验、评分占位逻辑、SQLite）已经用`scripts/smoke_test_nodes.py`跑通，DeepSeek Key已经用`scripts/check_llm_key.py`（纯标准库）验证调通。**下一个打开这个仓库的人，第一件事是在一个pip能正常工作的环境里`pip install -r requirements.txt`后跑一遍`streamlit run app.py`，确认langgraph/langchain-openai的实际API调用没问题**，见`Docs/TODO.md`"GitHub仓库与代码现状"一节。
+
+代码已推送到`https://github.com/BCXiaoxue/RAG_Writing.git`（`main`分支），仓库当前私有，以后会转public。
 
 ## 目录结构
-
-代码尚未创建，以下是规划中的目标结构（Day 1 建立，之后如有偏离请同步更新本节）：
 
 ```
 01-源代码/
 ├── CLAUDE.md                  本文件
 ├── .env                       真实密钥（已gitignore，DeepSeek/GLM Key、部署服务器信息）
 ├── .env.example               占位模板，给团队其他成员复制用
-├── .gitignore                 排除.env、大文件、__pycache__等
-├── Docs/                      规划与答辩支持文档（本次会话产出，见下方列表）
+├── .gitignore                 排除.env、.venv、大文件、__pycache__等
+├── .venv/                     本地Python虚拟环境（已gitignore）
+├── Docs/                      规划与答辩支持文档，见下方列表
 ├── data/
-│   ├── raw/                   原始ASAP-AES数据 + 自建知识库原始素材
-│   ├── processed/             清洗/预处理后的训练数据
-│   └── kb/                    RAG知识库源文件（评分细则、语法卡片、范文）
-├── models/
+│   ├── raw/                   原始ASAP-AES数据（需手动从Kaggle下载，尚为空）
+│   ├── processed/             清洗/预处理后的训练数据（Day2产出，尚为空）
+│   └── kb/                    RAG知识库源文件，目前只有各1篇rubric/语法卡片占位示例
+├── models/                    Day2训练产出的模型权重存放处，尚为空
 │   ├── essay-scorer-finetuned/  路径A：微调BERT系模型权重与分词器
 │   └── essay-scorer-custom/     路径B：自建BiLSTM模型权重（不依赖预训练）
 ├── src/
-│   ├── data_pipeline/         清洗、预处理、EDA脚本
-│   ├── training/               微调训练脚本、评估脚本
-│   ├── agents/                 LangGraph图定义、各Agent节点、工具(Tools)
-│   ├── rag/                    向量库构建与检索
-│   └── storage/                SQLite读写（用户历史、进步追踪）
-├── app.py                      Streamlit入口
+│   ├── data_pipeline/         clean.py/eda.py/preprocess.py，已写好，需要A先手动下载数据集才能跑
+│   ├── training/               Day2任务，目前只有空的__init__.py
+│   ├── agents/                 state.py/llm.py/nodes.py/graph.py，已写好，见下方"怎么跑起来"
+│   ├── rag/                    build_kb.py已写好（Day2任务，依赖chromadb等还没验证过）
+│   └── storage/                db.py，SQLite读写，已写好并验证通过
+├── scripts/
+│   ├── check_llm_key.py       不依赖任何pip包，验证.env里的LLM Key能不能调通
+│   └── smoke_test_nodes.py    验证不依赖langchain的节点逻辑+SQLite读写
+├── app.py                      Streamlit入口，已写好，未在本环境验证运行
 ├── requirements.txt
 └── .env.example
 ```
@@ -69,7 +73,20 @@
 
 ## 怎么跑起来 / 怎么测试
 
-代码尚未搭建，届时严格按 `Docs/RUNNING.md` 执行（环境准备 → 数据准备 → 微调模型 → 建知识库 → 跑Streamlit → 测试）。任何运行方式的变更都要同步改 `RUNNING.md`，不要让文档和实际脚本脱节。
+严格按 `Docs/RUNNING.md` 执行（环境准备 → 数据准备 → 微调模型 → 建知识库 → 跑Streamlit → 测试）。任何运行方式的变更都要同步改 `RUNNING.md`，不要让文档和实际脚本脱节。
+
+不需要`pip install`任何东西就能跑的两个验证脚本（本仓库当前环境已验证通过）：
+
+```bash
+python scripts/check_llm_key.py       # 验证.env里的DeepSeek/GLM Key能不能调通
+PYTHONPATH=. python scripts/smoke_test_nodes.py   # 验证intake校验/评分占位逻辑/SQLite读写
+```
+
+需要先`pip install -r requirements.txt`才能跑、本仓库当前环境还没能验证的：
+
+```bash
+streamlit run app.py    # 完整的LangGraph多智能体链路 + 四页面UI
+```
 
 ## 不要重新踩的坑
 
@@ -77,6 +94,8 @@
 - 不要为了"看起来花哨"而在LangGraph里堆砌过多Agent节点/循环——4天工期下，核心链路（校验→检索→评分→反馈→辅导→进步追踪）够用且可控；反思/自我批评循环等属于Day4有余力才做的加分项，见`Docs/04-四天开发计划与分工.md`里的"有余力再做"标注，不要把stretch goal当成必须交付项而挤占主线时间。
 - 参考的开源仓库（见`Docs/00-项目总览.md`参考资料）只用于理解架构思路，不要直接搬运代码当作自己的实现提交——尤其是两条评分模型的训练部分，题目要求"微调模型的构建和训练，必须自己完成"，答辩时要能讲清楚每一行关键逻辑。
 - **真实密钥/服务器凭证一律只进`.env`，不进`Docs/*.md`**：上一轮DeepSeek的真实API Key被直接粘贴进了`Docs/TODO.md`这种会当作交付材料提交的文档里，已经清理并补了`.gitignore`。以后任何Key/密码/私钥内容，团队协作时通过口头或私聊分发，不要再写进Markdown文档，也不要`git add`任何`.env`文件。
+- **DeepSeek V4 Flash是推理模型，`max_tokens`给小了会拿到空字符串**：会先输出`reasoning_content`再输出`content`，`max_tokens`太小（比如个位数/几十）的话推理阶段就把预算耗尽，`content`是空字符串、`finish_reason`是`"length"`，表现上像是"调用成功但什么都没返回"，容易被误判成Key错了或Prompt有问题。`src/agents/llm.py`里默认给了`DEFAULT_MAX_TOKENS = 2048`，改这个值之前先用`scripts/check_llm_key.py`验证过再改，别为了省token改小。
+- **这个开发环境`pip install`会失败（SSLEOFError），但curl/urllib能正常访问同一个host**：报错是`pip`自己的HTTP客户端连接被重置，不是真的没网络，也不是Key/网站的问题。如果换一台机器还遇到同样情况，参考`Docs/RUNNING.md`的排查记录，不要一上来就怀疑是防火墙挡了pypi。
 
 ## 已确认、不要再改的设计决策
 
@@ -92,7 +111,8 @@
 
 ## 环境信息
 
-- 操作系统：Windows 11；Shell以PowerShell为主。
-- 当前不是git仓库（`Is a git repository: false`）——建议Day1第一件事是`git init`并确定协作分支策略（是否用GitHub私有仓库多人协作），这是团队要做的操作，本次会话未代为执行。**`git init`之后第一时间确认`.gitignore`生效、`.env`没有被追踪**，再提交第一个commit。
-- 已存在`01-源代码/.env`（真实密钥，已被`.gitignore`排除）、`.env.example`（占位模板）、`.gitignore`。这三个文件是本轮新增的，Day1直接复用，不用重新决策供应商。
-- 仍未确定：Python版本、训练用GPU资源来源（本地/Colab，注意部署服务器`121.41.238.92`不建议用来跑训练，只用来跑Streamlit服务）。Day1由团队确认后再落地`requirements.txt`。
+- 操作系统：Windows 11；Shell以PowerShell为主；本地Python是Miniconda自带的3.9.1。
+- git仓库已建好并关联远程：`https://github.com/BCXiaoxue/RAG_Writing.git`，分支`main`，当前私有，以后转public。**`git init`时`.gitignore`先于其他文件`git add`，已确认`.env`/`.venv/`没有被追踪**；远程原本有个`LICENSE`文件，已用`git merge --allow-unrelated-histories`合并进来，没有强推/覆盖过历史。
+- `01-源代码/.venv/`是本地虚拟环境（已gitignore）。**这个开发环境的`pip install`目前用不了**：能`curl`/`python -m urllib.request`正常访问pypi.org和清华镜像（HTTP 200），但`pip install`本身会报`SSLEOFError`连接被重置，换了默认源、`--index-url`、加了`dangerouslyDisableSandbox`都没用，怀疑是这个sandbox网络环境对pip的连接模式（长连接/HTTP流式）有特殊限制。**这不代表其他机器/团队成员的环境也会有这个问题**，只是本轮没能在这个环境里`pip install -r requirements.txt`跑通LangGraph/Streamlit的实际调用，遇到同样报错时可以参考这个记录，不用重新排查一遍。
+- 已存在`01-源代码/.env`（真实密钥，已被`.gitignore`排除）、`.env.example`（占位模板）、`.gitignore`。这三个文件是Day1新增的，不用重新决策供应商。
+- 仍未确定：训练用GPU资源来源（本地/Colab，注意部署服务器`121.41.238.92`不建议用来跑训练，只用来跑Streamlit服务）。

@@ -1,34 +1,24 @@
 # RUNNING · 环境搭建 / 运行 / 测试
 
-> 代码尚未搭建，本文档写的是Day1开始搭建骨架时**应该遵循的目标流程**。搭建过程中如果实际做法和这里不一致，请回来更新本文档，保持"文档=实际能跑的步骤"，不要让它变成写完就过期的空文档。
+> Day1骨架代码已经写好（`src/`、`app.py`），本文档是实际的运行步骤。如果你改了代码的运行方式，回来同步更新本文档，保持"文档=实际能跑的步骤"。
+
+## 0. 已知问题：某些环境下`pip install`会失败
+
+Day1脚手架阶段的开发环境里，`pip install`会报`SSLEOFError`（连接被重置），但`curl`/`python -m urllib.request`访问同一个pypi地址完全正常（HTTP 200）。排查过的点：
+- 换`--index-url`（清华镜像/官方pypi.org）都一样失败，不是镜像的问题；
+- 升级pip到最新版（26.x）、加`--trusted-host`都没用；
+- 不是Key/项目本身的问题，是那个特定网络环境对pip的HTTP连接模式不友好。
+
+如果你也遇到这个报错：换一个网络（比如手机热点/不同的校园网出口）通常能解决；如果换网络还不行，可以尝试`pip install --proxy ...`指定一个可用代理，或者用conda环境试试`conda install`。**这不代表整个项目有问题**，只是这一层网络环境的问题。
 
 ## 1. 环境准备
 
 ```bash
-# 建议使用虚拟环境
+# 建议使用虚拟环境（Day1已建好.venv，别的机器上需要重新建）
 python -m venv .venv
 .venv\Scripts\activate        # Windows
 
 pip install -r requirements.txt
-```
-
-`requirements.txt`（Day1按实际选型确定版本号）预计包含：
-
-```
-langchain
-langgraph
-langchain-community
-transformers
-torch
-sentence-transformers
-chromadb
-streamlit
-pandas
-scikit-learn
-matplotlib
-seaborn
-python-dotenv
-language-tool-python   # 语法检查，如最终采用
 ```
 
 ## 2. 环境变量
@@ -95,10 +85,17 @@ streamlit run app.py
 
 ## 7. 测试
 
-- **单元测试**：`pytest tests/`，至少覆盖：
-  - `EssayScorer.predict()`输入输出格式；
-  - LangGraph路由逻辑（无效输入是否正确短路到`ShortCircuitReject`）；
-  - SQLite读写（提交记录能正确写入、历史查询能正确返回）。
+- **Day1已有的两个免安装验证脚本**（不需要`pip install`，Day1在受限网络环境里就是靠这两个验证的）：
+
+```bash
+python scripts/check_llm_key.py              # 验证.env里的DeepSeek/GLM Key能不能真的调通
+PYTHONPATH=. python scripts/smoke_test_nodes.py   # 验证intake校验/评分占位逻辑/SQLite读写
+```
+
+- **完整链路测试**（需要`pip install -r requirements.txt`之后）：`streamlit run app.py`，手动跑一遍端到端提交流程；后续如果补充了`pytest`用例，再在这里记录跑法。至少要覆盖：
+  - `EssayScorer.predict()`输入输出格式（Day2接入真实评分模型后）；
+  - LangGraph路由逻辑（无效输入是否正确短路到`short_circuit_reject`）；
+  - SQLite读写（提交记录能正确写入、历史查询能正确返回，已在`scripts/smoke_test_nodes.py`里覆盖）。
 - **端到端手动测试清单**（Day3~4联调时逐项过）：
   - [ ] 提交一篇明显高分作文，检查评分、反馈、雷达图是否合理。
   - [ ] 提交一篇有明显语法问题的作文，检查`GrammarCheckNode`是否能识别出对应错误并在反馈中体现。
