@@ -1,5 +1,12 @@
 # TODO 待办清单
 
+## 本轮（第三轮，训练服务器实战）新增待办
+
+- [ ] **提供GLM真实API Key**（可选）：`.env`里`GLM_API_KEY`还是占位值，DeepSeek单独用没问题，双供应商fallback目前实际只有一条腿。
+- [ ] **确认数据来源是否要换回Kaggle官方渠道**：本轮用了HuggingFace非gated镜像（内容与Kaggle官方一致），因为没有Kaggle账号没法走官方渠道。见`06-本轮成果与复现步骤.md`「数据来源说明」，如果不介意就不用管。
+- [ ] **确认训练服务器上的数据/模型要不要打包取回**：`/data/wangchen/tiansukai/RAG/`下有完整的数据集、两个训练好的模型权重（未同步进git，太大）、Chroma向量库，如果这台机器会被清理，需要提前处理。
+- [ ] Day3/4任务：分项trait_scores的真实多头训练（目前是占位）、`grammar_check_node`接入语法检查工具、正式SSH部署到`121.41.238.92`、PPT和答辩预演——详见`06-本轮成果与复现步骤.md`「还没做的」。
+
 ## 本轮已确认的决策（摘要+落地方式见此处；正式记录已同步进`CLAUDE.md`"已确认、不要再改的设计决策"）
 
 - **"225原则"**：指训练循环的"2层循环+2个遍历对象+5个核心步骤"——外层遍历epoch、内层遍历batch（2层/2个遍历对象），每个batch内执行"梯度清零→正向传播→损失计算→反向传播→参数更新"5个核心步骤。这是训练循环的**最基本写法**，团队可以在此基础上叠加更好的方案（如学习率调度、梯度裁剪、混合精度、早停等），不是"用了225就不能加别的"。已更新`03-模型训练与微调方案.md`。
@@ -52,13 +59,13 @@
 - [ ] D：git仓库/协作方式确定（已完成git部分）；rubric/语法卡片/范文标注第一版——**只写了每类1个占位示例**（`data/kb/rubric_essay_set_1.md`、`data/kb/grammar_cards.md`），D需要补齐其余7个essay_set的rubric和更多语法卡片/范文标注
 - [x] 全员：确认`.env`可用（DeepSeek/GLM均已确定，Day1不需要再申请Key，只需要验证调通）——DeepSeek已验证，GLM待团队补充真实Key
 
-### Day 2
-- [ ] A：微调评分模型（BERT系）训练完成，产出QWK指标
-- [ ] A：自定义构建模型（从零训练，不依赖预训练权重）训练完成，产出QWK指标，与微调模型做对比
-- [ ] A：交付统一的`EssayScorer.predict()`封装（内部可选调用微调模型/自定义模型/两者融合）
-- [ ] B：Chroma知识库建好（embedding模型选型落地）；`RetrievalAgentNode`、`FeedbackAgentNode`接通DeepSeek/GLM
-- [ ] C：SQLite表结构 + 提交页基础联通
-- [ ] D：知识库素材持续补充；`05`号答辩文档初稿
+### Day 2（本轮已提前完成，见`06-本轮成果与复现步骤.md`）
+- [x] A：微调评分模型（DistilBERT）训练完成，测试集QWK=0.693
+- [x] A：自定义构建模型（BiLSTM从零训练）训练完成，测试集QWK=0.622，与微调模型做了对比
+- [x] A：交付统一的`EssayScorer.predict()`封装（`src/training/essay_scorer.py`，内部融合两条路径）
+- [x] B：Chroma知识库建好（embedding用`BAAI/bge-small-en-v1.5`，120个chunk）；`retrieval_agent_node`、`feedback_agent_node`已接通DeepSeek并验证真实调用成功
+- [x] C：SQLite表结构 + 提交页基础联通（已在`scripts/e2e_graph_test.py`里验证读写）
+- [ ] D：知识库素材持续补充（目前rubric是原始英文，语法卡片只有3条示例）；`05`号答辩文档还需要按真实QWK数字更新话术细节
 
 ### Day 3
 - [ ] 全员：评分模型→Graph→Streamlit端到端打通
@@ -76,7 +83,6 @@
 
 ---
 
-## 上一轮的指示与处理结果（已落地）
-
-1. GitHub库`https://github.com/BCXiaoxue/RAG_Writing.git`——已关联为`origin`，合并了远程原有的`LICENSE`，已完成首次push，仓库现在是私有状态；转public前再检查一遍没有`.env`/大文件被误传即可。
-2. 改名和查重按要求暂缓，已直接开始Day1任务——Day1范围内能由我直接实现的代码（LangGraph骨架、Streamlit UI、SQLite、数据处理脚本、RAG构建脚本、KB种子内容、LLM封装）已经写好并提交，具体完成度和"你需要手动做什么"见上面"GitHub仓库与代码现状"和各Day1条目里的标注。
+## 下一步
+把4天能先跑好的代码先跑好（不用部署）。如果需求里有需要我手动的，先替我完成，然后写一个md文档，我根据md文档再去跑一遍。若有需要的信息，请列出来，我进行相应的补充。
+模型训练可用服务器：ssh retinascope-server C:\Users\tsk666\.ssh\id_ed25519_retinascope；在root/wangchen/tiansukai/RAG里面执行

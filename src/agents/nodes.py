@@ -1,16 +1,24 @@
 """LangGraph各节点实现，对应Docs/01-系统架构与Agent设计.md「节点职责表」。
 
-Day1现状：
+现状（本轮在训练服务器上补齐了Day2的核心部分）：
 - `intake_validator_node`、`feedback_agent_node`、`coach_agent_node`、
-  `progress_tracker_node` 是真实实现。
-- `retrieval_agent_node`、`scoring_tool_node`、`grammar_check_node` 是
-  Day2占位实现（RAG知识库和评分模型还没构建/训练好），返回结果里明确
-  标注了"[Day2占位]"，不要在没看这个文件之前就以为它们是真的评分/检索结果。
+  `progress_tracker_node`：真实实现。
+- `scoring_tool_node`：真实实现，调用`EssayScorer`（路径A微调DistilBERT +
+  路径B自建BiLSTM的融合），模型已经在真实ASAP-AES数据上训练过，测试集QWK
+  分别是0.693（路径A）和0.622（路径B），见`models/essay-scorer-*/v1/training_log.json`。
+  **分项trait_scores目前是整体分的占位复制，不是单独训练的分项预测**，见
+  `src/training/essay_scorer.py`顶部的诚实说明。
+- `retrieval_agent_node`：真实实现，检索本轮已构建好的Chroma向量库
+  （`data/processed/chroma_kb`，120个chunk，来自8个essay_set的真实rubric/
+  prompt + 语法卡片）。
+- `grammar_check_node`：仍是Day3占位（还没接`language_tool_python`）。
 
-注意：涉及LLM调用的函数把`from src.agents.llm import ...`放在函数体内
-（懒加载），不放在模块顶部——这样`intake_validator_node`/`scoring_tool_node`/
-`grammar_check_node`/db读写这些不需要langchain的逻辑，可以在没装
-langchain-openai的环境里单独导入和单测（见scripts/smoke_test_nodes.py）。
+注意：涉及LLM调用/模型加载的函数把import放在函数体内（懒加载），不放在模块
+顶部——这样`intake_validator_node`这类不需要额外依赖的逻辑，可以在没装
+langchain-openai/torch的环境里单独导入和单测（见scripts/smoke_test_nodes.py）。
+如果`models/essay-scorer-*/v1`或`data/processed/chroma_kb`在本地不存在
+（比如刚clone仓库、还没跑训练/建库脚本），`scoring_tool_node`/
+`retrieval_agent_node`会自动降级回Day1的占位逻辑，不会直接报错崩溃。
 """
 from __future__ import annotations
 
@@ -39,32 +47,66 @@ def intake_validator_node(state: EssayReviewState) -> EssayReviewState:
     return {**state, "is_valid": True, "reject_reason": None}
 
 
+CHROMA_KB_DIR = "data/processed/chroma_kb"
+EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
+_retriever_cache = None
+
+
 def retrieval_agent_node(state: EssayReviewState) -> EssayReviewState:
-    # Day2 TODO：接入Chroma向量库，按essay_prompt_id检索rubric/语法卡片/范文
-    # 片段，见Docs/01-系统架构与Agent设计.md「RAG知识库设计」和src/rag/build_kb.py。
-    placeholder = [
-        "[Day2占位] 知识库尚未构建，这里应该是按essay_prompt_id检索到的"
-        "评分细则/语法规则/范文片段。",
-    ]
-    return {**state, "retrieved_context": placeholder}
+    global _retriever_cache
+    from pathlib import Path
+
+    if not Path(CHROMA_KB_DIR).exists():
+        # 知识库还没构建（见src/rag/build_kb.py），降级回占位结果，不阻塞主链路。
+        return {
+            **state,
+            "retrieved_context": [
+                "[占位] 知识库尚未构建，运行 `python -m src.rag.build_kb` 后这里会是"
+                "真实检索到的评分细则/语法规则/范文片段。"
+            ],
+        }
+
+    if _retriever_cache is None:
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+        from langchain_community.vectorstores import Chroma
+
+        embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+        _retriever_cache = Chroma(persist_directory=CHROMA_KB_DIR, embedding_function=embeddings)
+
+    query = f"essay_set {state.get('essay_prompt_id')} scoring rubric: {state.get('essay_text', '')[:300]}"
+    docs = _retriever_cache.similarity_search(query, k=3)
+    return {**state, "retrieved_context": [d.page_content for d in docs]}
+
+
+_scorer_cache = None
 
 
 def scoring_tool_node(state: EssayReviewState) -> EssayReviewState:
-    # Day2 TODO：接入EssayScorer（微调BERT系路径A + 自建BiLSTM路径B融合），
-    # 见Docs/03-模型训练与微调方案.md。
-    # 下面是占位启发式：按词数给一个粗略的0-1分数，只是为了让后续Agent节点
-    # 有输入可用，完全不代表真实评分能力，答辩时不能拿这个当成果展示。
-    word_count = len(state.get("essay_text", "").split())
-    heuristic_score = max(0.0, min(1.0, word_count / 400))
-    return {
-        **state,
-        "quant_score": heuristic_score,
-        "trait_scores": {
-            "content": heuristic_score,
-            "organization": heuristic_score,
-            "language": heuristic_score,
-        },
-    }
+    global _scorer_cache
+    from pathlib import Path
+
+    finetuned_exists = Path("models/essay-scorer-finetuned/v1").exists()
+    custom_exists = Path("models/essay-scorer-custom/v1").exists()
+
+    if not (finetuned_exists or custom_exists):
+        # 两条评分模型都还没训练好（见src/training/train_finetuned.py /
+        # train_custom.py），降级回Day1的占位启发式，不阻塞主链路，但明确标注
+        # 这不是真实评分能力。
+        word_count = len(state.get("essay_text", "").split())
+        heuristic_score = max(0.0, min(1.0, word_count / 400))
+        return {
+            **state,
+            "quant_score": heuristic_score,
+            "trait_scores": {"content": heuristic_score, "organization": heuristic_score, "language": heuristic_score},
+        }
+
+    if _scorer_cache is None:
+        from src.training.essay_scorer import EssayScorer
+
+        _scorer_cache = EssayScorer()
+
+    result = _scorer_cache.predict(state.get("essay_text", ""), state.get("essay_prompt_id", 1))
+    return {**state, "quant_score": result["score_norm"], "trait_scores": result["traits"]}
 
 
 def grammar_check_node(state: EssayReviewState) -> EssayReviewState:

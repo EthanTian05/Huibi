@@ -16,6 +16,23 @@ import pandas as pd
 INPUT_PATH = Path("data/processed/essays_clean.csv")
 OUTPUT_DIR = Path("data/processed/eda")
 
+# 默认字体（DejaVu Sans）不含中文字形，图里的中文标题/坐标轴会变成方块。
+# 按顺序尝试几个常见的中文字体，找到就用；一个都没有就保留默认字体
+# （英文能正常显示，只是中文部分会缺字形，不阻塞整个脚本）。
+_CJK_FONT_CANDIDATES = [
+    "Noto Sans CJK SC",
+    "Noto Sans CJK JP",
+    "WenQuanYi Zen Hei",
+    "SimHei",
+    "Microsoft YaHei",
+    "PingFang SC",
+]
+for _font in _CJK_FONT_CANDIDATES:
+    if any(_font.lower() in f.name.lower() for f in matplotlib.font_manager.fontManager.ttflist):
+        matplotlib.rcParams["font.sans-serif"] = [_font]
+        matplotlib.rcParams["axes.unicode_minus"] = False
+        break
+
 
 def main():
     if not INPUT_PATH.exists():
