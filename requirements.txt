@@ -1,0 +1,16 @@
+langchain
+langgraph
+langchain-openai
+langchain-community
+langchain-text-splitters
+python-dotenv
+streamlit
+pandas
+scikit-learn
+matplotlib
+seaborn
+transformers
+torch
+sentence-transformers
+chromadb
+language-tool-python

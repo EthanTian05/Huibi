@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+
+data/raw/
+data/processed/
+models/essay-scorer-finetuned/
+models/essay-scorer-custom/
+
+.streamlit/secrets.toml
+*.key
+id_rsa
