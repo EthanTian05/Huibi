@@ -110,6 +110,7 @@ streamlit run app.py                              # 四页面UI，headless模式
 - **训练服务器(`retinascope-server`)的根分区(`/`)是满的，只能在`/data/wangchen/tiansukai/RAG/`下操作**；HuggingFace的大文件下载要加`HF_HUB_DISABLE_XET=1`否则会卡死在0字节；Python裸`urllib`/`ssl`调用在这台机器上会因为自定义OpenSSL证书目录是空的而报`certificate verify failed`（`langchain_openai`/`requests`等库因为默认走`certifi`不受影响）。完整细节见`Docs/RUNNING.md`「0.5 本轮已经在训练服务器上把全部流程实际跑通了一遍」。
 - **GitHub单文件超100MB会被硬性拒绝push，Git LFS和"发布Release"是两种不同的应对方案**：微调模型的265MB权重文件选了后者（GitHub Release资产），不是Git LFS，两者操作方式和后续下载方式完全不同，别搞混——Release资产用`scripts/download_models.py`或`Docs`里记录的REST API方式下载，不是`git lfs pull`。
 - **仓库私有时，GitHub Release资产不能匿名下载**：`browser_download_url`直接请求私有仓库的Release资产会返回404，必须用`Authorization: Bearer <token>`走`https://api.github.com/repos/{owner}/{repo}/releases/assets/{id}`这个API端点（`Accept: application/octet-stream`）才能拿到文件内容，`scripts/download_models.py`已经处理了这个区别（有`GITHUB_TOKEN`就走API下载，没有就走匿名`browser_download_url`，仓库转public后两种都行）。
+- **`121.41.238.92`(`deploy-server`)是共用服务器，部署我们的应用前必须先看清楚已经在跑什么**：`docker ps`显示端口`8501`已经被一个叫`ophthalmic-ai`的生产容器占用（健康运行2个月），`80`/`8080`/`8502`也被别的python3进程占了。这台机器和`retinascope-server`一样，都是"看起来能随便用，实际上别的服务已经在上面跑"的类型——**部署前一律先`docker ps`+`ss -tlnp`确认端口/资源没有冲突，我们的Streamlit应用固定用`8503`**（已确认当前空闲），别想当然用默认的`8501`。
 
 ## 已确认、不要再改的设计决策
 
@@ -118,12 +119,12 @@ streamlit run app.py                              # 四页面UI，headless模式
 - 模型构建：三条路径都做——① DeepSeek/GLM负责生成类任务；② 微调BERT系模型（路径A，实际用`distilbert-base-uncased`，测试集QWK=0.693）；③ 从零构建、不依赖预训练权重的BiLSTM+Attention模型（路径B，测试集QWK=0.622）。两个自训练评分模型分别覆盖"预训练模型-微调"和"自定义构建模型"两个加分选项，已经训练完成、有真实QWK对比数据，见`Docs/03-模型训练与微调方案.md`。
 - 评分模型的分项输出（内容/结构/语言）**目前是整体分的占位复制，不是真正的多头训练**——之前文档写成"已确认主线方案"是不准确的，本轮训练时发现各essay_set的trait标注字段不统一、需要额外的掩码多任务设计，已把这个改成Day3/4待办，不要再当成"已完成"来汇报，见`Docs/03-模型训练与微调方案.md`顶部说明。
 - "225原则"：指训练循环"2层循环(epoch/batch)+2个遍历对象+5个核心步骤(梯度清零→正向传播→损失计算→反向传播→参数更新)"，是训练脚本的底线结构，可在此基础上叠加更好的方案，不要再当成未解之谜去问，直接照`Docs/03-模型训练与微调方案.md`写代码。
-- 前端部署框架：Streamlit（与田溯开已有的RetinaScope项目技术栈一致，团队上手最快，且是题目允许的加分部署选项之一），部署目标是自有服务器`121.41.238.92`（root，端口22，私钥登录），通过SSH部署，见`Docs/RUNNING.md`第8节。
+- 前端部署框架：Streamlit（与田溯开已有的RetinaScope项目技术栈一致，团队上手最快，且是题目允许的加分部署选项之一），部署目标是自有服务器`121.41.238.92`（root，端口22，私钥登录，本机SSH别名`deploy-server`，已测试连通），通过SSH部署，端口用`8503`（`8501`已经被这台机器上另一个生产容器占用，见"不要重新踩的坑"），见`Docs/RUNNING.md`第8节。
 - Embedding模型：走开源本地模型（不用大模型API的embedding接口），具体型号Day1定。
 - 创意加分模块：学习进步仪表盘 + 个性化弱项雷达图 + 自适应练习推荐的"持续学习闭环"，区别于一次性打分工具，用于申请10~15分创意加分。
 - 文档语言：`Docs/`下所有文档一律使用中文撰写，服务于中文答辩场景。
 - 模型权重分发：不进git（超GitHub 100MB单文件限制），发布到GitHub Release（`models-v1.0.0`），用`scripts/download_models.py`下载，见`README.md`。
-- 数据集渠道：默认HuggingFace非gated镜像；Kaggle官方渠道的Token已就绪但下载被"需手动接受比赛规则"卡住，见`Docs/TODO.md`。
+- 数据集渠道：**用户已确认不再追求Kaggle官方渠道**（HF镜像内容与Kaggle官方一致，没必要为了"官方"这个标签多折腾），统一用HuggingFace非gated镜像，别再把这个当成待办事项。
 
 ## 环境信息
 
@@ -133,3 +134,4 @@ streamlit run app.py                              # 四页面UI，headless模式
 - 已存在`01-源代码/.env`（真实密钥，已被`.gitignore`排除）、`.env.example`（占位模板）、`.gitignore`。目前`.env`里有：`DEEPSEEK_API_KEY`/`GLM_API_KEY`（均已验证）、`KAGGLE_API_TOKEN`（已验证能访问API，下载被"需手动接受比赛规则"卡住）、`GITHUB_TOKEN`（**有仓库写权限，用于发布Release，比其他Key更敏感**）、`DEPLOY_HOST`等部署服务器信息。
 - **训练用GPU资源已确定**：`ssh retinascope-server`（配置在`~/.ssh/config`，IdentityFile`id_ed25519_retinascope`），8×A100 40GB，Python 3.10.12。项目代码/环境放在`/data/wangchen/tiansukai/RAG/`（**不是**`/root/`下，根分区已满，见"不要重新踩的坑"）。这台机器同时也部署着田溯开的RetinaScope项目（Docker容器`retinascope_app`，端口8501），操作时要注意不要影响到它（尤其是进程管理，只能精确PID）。
 - 部署目标服务器`121.41.238.92`和训练服务器`retinascope-server`是**两台不同的机器**，不要混淆：前者用于Day4最终部署跑Streamlit对外服务，后者用于Day2/3训练模型、开发调试。
+- **`deploy-server`（`121.41.238.92`）已配置SSH访问并实测连通**：`ssh deploy-server`，配置在`~/.ssh/config`（`IdentityFile ~/.ssh/id_rsa`，注意和`retinascope-server`用的`id_ed25519_retinascope`是不同的密钥）。这台机器根分区40G，已用28G，只剩9.3G可用，Ubuntu 24.04，无GPU，Docker已装好（29.4.1）。

@@ -142,26 +142,30 @@ PYTHONPATH=. python scripts/e2e_graph_test.py
 
 ## 8. 部署（已确认：SSH部署至自有服务器）
 
-- 目标服务器：`121.41.238.92`，用户`root`，端口22，私钥登录（私钥文件留在各自本机的`~/.ssh/`下，不要拷贝进仓库）。
+- 目标服务器：`121.41.238.92`，用户`root`，端口22，私钥登录，本机SSH别名`deploy-server`（配置在`~/.ssh/config`，`IdentityFile ~/.ssh/id_rsa`，已测试连通）。**这是Day4的最终部署机，和用于训练的`retinascope-server`是两台不同的机器，不要混淆**。
+- **这台机器不是空的，是共用服务器，部署前必须知道这些**（已实测确认）：
+  - 根分区`40G`总容量，已用`28G`，只剩`9.3G`可用——够部署一个Streamlit应用，但不宽裕，注意不要在这台机器上跑模型训练或存大量数据。
+  - **端口`80`、`8080`、`8501`、`8502`已经被占用**，其中`8501`是一个叫`ophthalmic-ai`的Docker容器（`docker ps`显示"Up 2 months (healthy)"，看内容像是田溯开另一个已上线的医疗项目），**绝对不要碰这个容器**（参考`RUNNING.md`「0.5」和`CLAUDE.md`里记录的pkill误杀生产容器的教训，这台机器上必须更谨慎）。我们的应用要用别的端口，见下方命令里已经改成了`8503`（当前实测空闲，正式部署前建议再用`ss -tlnp`确认一遍没被占用）。
+  - Docker本身是装好的（29.4.1），如果想用容器化部署也可以，但没有现成的nginx。
 - 部署方式：
 
 ```bash
 # 1. 把代码同步到服务器（排除.env等敏感/大文件，用.gitignore同名规则参考）
-rsync -avz --exclude-from=.gitignore ./ root@121.41.238.92:/opt/huibi/
+rsync -avz --exclude-from=.gitignore ./ deploy-server:/root/huibi/
 
 # 2. 登录服务器，安装依赖
-ssh root@121.41.238.92
-cd /opt/huibi && python -m venv .venv && source .venv/bin/activate
+ssh deploy-server
+cd /root/huibi && python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # 3. 服务器上单独准备.env（不要通过rsync同步含真实Key的.env，改为登录后手动创建或用scp单独传输一次）
-# 4. 后台常驻运行（二选一）
+# 4. 后台常驻运行（二选一），注意端口用8503，不要用被占用的8501/8502/80/8080
 #   a) tmux/nohup（最简单，适合4天工期）
-nohup streamlit run app.py --server.port 8501 --server.address 0.0.0.0 > streamlit.log 2>&1 &
+nohup streamlit run app.py --server.port 8503 --server.address 0.0.0.0 > streamlit.log 2>&1 &
 #   b) systemd服务（更规范，如时间允许可做）
 
-# 5. 确认服务器防火墙/安全组放通8501端口（或用nginx反代到80）
+# 5. 确认服务器防火墙/安全组放通8503端口
 ```
 
-- 答辩前必须实测：从答辩现场网络能否访问`http://121.41.238.92:8501`（校园网/外网限制、防火墙规则都可能导致连不上），并准备好`RUNNING.md`第7节提到的离线演示预案兜底。
+- 答辩前必须实测：从答辩现场网络能否访问`http://121.41.238.92:8503`（校园网/外网限制、防火墙规则都可能导致连不上），并准备好`RUNNING.md`第7节提到的离线演示预案兜底。
 - 安全提醒：服务器用`root`直接部署仅为4天工期图快，如果这个项目之后要长期运行/给更多人用，建议改成非root部署用户；私钥文件本身任何时候都不要提交进仓库或粘贴进文档。
