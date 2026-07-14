@@ -58,6 +58,12 @@ def retrieval_agent_node(state: EssayReviewState) -> EssayReviewState:
 
     if not Path(CHROMA_KB_DIR).exists():
         # 知识库还没构建（见src/rag/build_kb.py），降级回占位结果，不阻塞主链路。
+        import warnings
+
+        warnings.warn(
+            f"{CHROMA_KB_DIR} 不存在，retrieval_agent_node降级为占位结果。"
+            f"先跑 `python -m src.rag.build_rubric_docs && python -m src.rag.build_kb` 构建知识库。"
+        )
         return {
             **state,
             "retrieved_context": [
@@ -89,9 +95,17 @@ def scoring_tool_node(state: EssayReviewState) -> EssayReviewState:
     custom_exists = Path("models/essay-scorer-custom/v1").exists()
 
     if not (finetuned_exists or custom_exists):
-        # 两条评分模型都还没训练好（见src/training/train_finetuned.py /
-        # train_custom.py），降级回Day1的占位启发式，不阻塞主链路，但明确标注
-        # 这不是真实评分能力。
+        # 两条评分模型都还没训练好/还没下载（见src/training/train_finetuned.py /
+        # train_custom.py，或者跑 `python scripts/download_models.py` 从GitHub
+        # Release下载已训练好的权重），降级回Day1的占位启发式，不阻塞主链路，
+        # 但明确标注这不是真实评分能力。
+        import warnings
+
+        warnings.warn(
+            "models/essay-scorer-{finetuned,custom}/v1 都不存在，scoring_tool_node降级为"
+            "词数启发式占位评分（不代表真实评分能力）。跑 `python scripts/download_models.py` "
+            "下载已训练好的权重，或参考RUNNING.md重新训练。"
+        )
         word_count = len(state.get("essay_text", "").split())
         heuristic_score = max(0.0, min(1.0, word_count / 400))
         return {

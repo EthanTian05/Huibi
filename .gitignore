@@ -9,9 +9,11 @@ data/processed/chroma_kb/
 models/**/*.bin
 models/**/*.safetensors
 models/**/vocab.txt
+models/**/vocab.json
 models/**/tokenizer.json
 models/**/tokenizer_config.json
 models/**/special_tokens_map.json
+models/**/model_config.json
 
 .streamlit/secrets.toml
 *.key

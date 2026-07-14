@@ -123,3 +123,32 @@
 **怎么验证的**：对`Docs/`下所有文件做了一轮grep（关键词"占位""尚未""待定""Kaggle公开的ASAP-AES"等），逐条核对是否已经被后续实际进展推翻，只对确认过时的地方做修改，`Progress.md`历史记录本身不改（那是"当时状态"的如实记录，不应该被后续状态覆盖）。
 
 **遗留问题**：无新增，`TODO.md`当前的待决策事项和Day3/4 checklist与`06-本轮成果与复现步骤.md`保持一致。
+
+## 2026-07-14（第五轮）· 又一次密钥泄露处理 + Kaggle官方数据源尝试 + 模型权重发布到GitHub Release
+
+**背景**：用户在`TODO.md`"下一步"里又一次直接粘贴了两个真实凭证（Kaggle API Token、GLM API Key），并给了三条新指示："选题查重已过""代码最好在本地服务器上搞，因为后续要部署到121.41.238.92""跑好的模型效果好的话可以放回本地代码"。
+
+**做了什么**：
+
+1. **立即处理第三次密钥泄露**：把Kaggle Token和GLM Key移到本地`.env`，从`TODO.md`里脱敏。这是同一个问题第二次复发（第一次是DeepSeek Key），在`TODO.md`"安全提醒"里换了措辞强调——以后有新Key应该先告诉我"有一个新Key"，由我来问你要值存进`.env`，而不是自己先粘贴到文档里。
+2. **验证GLM Key真实可用**：用`scripts/check_llm_key.py`（纯标准库，不受本地pip问题影响）确认DeepSeek和GLM两个供应商都能调通，双供应商fallback现在真的有两条腿了。
+3. **尝试用Kaggle官方渠道下载数据**：用提供的Token直接调Kaggle API（`Authorization: Bearer <token>`），确认Token有效（能访问`competitions/list`），并且定位到了官方文件`training_set_rel3.tsv`（16.3MB，通过`competitions/data/list/asap-aes`列出）。实际下载时被Kaggle拦截：`403 You must accept this competition's rules before you'll be able to download files.`——这是Kaggle强制要求的人工同意步骤，账号本身需要先在网页上点一次"I Understand and Accept"，没法用API/Token绕过，也不应该尝试绕过。已经把这个卡点和需要用户做的具体操作（打开比赛规则页面点接受）写进`TODO.md`，当前继续用HuggingFace镜像数据不受影响。
+4. **把训练服务器上的模型权重取回本地**：`scp`拉回两条模型的完整产出物（路径A：pytorch_model.bin 265MB + tokenizer.json + tokenizer_config.json；路径B：pytorch_model.bin 11MB + vocab.json + model_config.json），过程中大文件那次scp因连接不稳定失败了一次，重试后文件大小与服务器端完全一致（265495867字节），确认传输完整。
+5. **模型权重的git策略：发布GitHub Release而不是Git LFS或直接提交**——路径A的265MB权重超过GitHub单文件100MB硬限制，问了用户后选择"发布为Release资产，README里给下载脚本+SHA-256校验"这个方案（不是Git LFS，也不是完全不管）。具体做的：
+   - 遇到`gh` CLI没装、也没有GitHub Token的问题，问用户要了token；第一个token只有读权限（创建Release时返回`403 Resource not accessible`），问用户换了一个有`Contents:write`权限的token才成功。
+   - 用GitHub REST API（`curl` + Bearer token）创建了Release `models-v1.0.0`，上传了两条模型的全部产出物（权重+tokenizer/vocab/config共6个文件），核对了每个上传后的`browser_download_url`和文件大小都对得上。
+   - 计算并记录了两个`.bin`文件的SHA-256。
+   - 写了`scripts/download_models.py`（支持`GITHUB_TOKEN`存在时走认证API下载——当前仓库私有必须这样，不设Token时走匿名`browser_download_url`——留给仓库转public之后用），实际跑通验证过（下载了一个小文件比对内容）。
+   - 写了根目录`README.md`（本仓库第一次有README.md），包含模型权重下载的两种方式、SHA-256表格、"文件缺失会发生什么"的说明。
+   - 精细化了`.gitignore`：模型相关的所有产出物（权重/tokenizer/vocab/config）统一排除，只保留`training_log.json`，逻辑比之前更一致（之前只排除了.bin和部分tokenizer文件，vocab.json/model_config.json漏排了）。
+   - 给`scoring_tool_node`/`retrieval_agent_node`的降级分支加了`warnings.warn(...)`，避免模型/知识库缺失时静默返回占位结果却没有任何提示。
+6. **"选题查重已过"**：从TODO里的待决策事项移除，标记为已解决。
+7. **"代码最好在本地服务器上搞...部署到121.41.238.92"**：这条指示有歧义（到底是现在就要在那台机器上开发，还是Day4部署时的提醒），用`AskUserQuestion`问清楚，用户确认是"Day4部署时的提醒，现在不用动"，所以本轮没有为这台机器配置SSH访问，只在`TODO.md`里记了一条"等真正部署时需要你提供访问信息"。
+8. 更新了`TODO.md`（大幅重写，加入本节所有解决/新增事项）、`CLAUDE.md`（模型分发方式、环境信息里的Token清单、两条新的"不要重新踩的坑"：GitHub 100MB限制与Release vs LFS的区别、私有仓库Release资产需要认证下载）。
+
+**怎么验证的**：`check_llm_key.py`跑通确认两个LLM Key都可用；`curl`直接测试Kaggle API确认Token有效、定位到官方文件、复现了规则未接受的403错误（不是我们代码的问题）；用`sha256sum`核对本地拉回的模型文件和Release上传前的一致性；用`download_models.py`实际下载一个Release资产验证认证下载路径能工作；`git status --short --ignored`和`git diff --cached | grep`确认两个新Token都没有进入任何要提交的文件。
+
+**遗留问题**：
+- Kaggle官方数据下载卡在"用户需要手动接受比赛规则"这一步，记在`TODO.md`，不阻塞任何已有功能。
+- 121.41.238.92的SSH访问信息还没有，Day4真正部署时需要用户提供。
+- `GITHUB_TOKEN`目前是有仓库写权限的敏感凭证，比LLM Key风险更高，需要格外注意不要再次泄露；仓库转public后可以考虑是否要撤销/降权这个token（届时下载模型权重不再需要认证）。
