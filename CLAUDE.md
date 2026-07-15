@@ -2,6 +2,7 @@
 > Use advisor and dynamic workflow globally
 > 本文件是创新创业项目的工作说明，**每次在这个仓库里开始任务前必须先读一遍**。
 > 项目进度、每轮改了什么、还有什么没做见 `Docs/Progress.md`；待办清单见 `Docs/TODO.md`；怎么把系统跑起来/怎么测试见 `Docs/RUNNING.md`；
+> 更新md文件要精炼，避免冗余
 
 ## 工作方式（全局遵守）
 
@@ -12,7 +13,7 @@
 
 ## 项目是什么
 
-**慧笔（HuiBi）——基于LangChain+LangGraph的英语写作智能批改与个性化学习伴学系统**
+**慧笔（HuiBi）——基于LangChain+LangGraph的英语写作智能批改与个性化学习伴学智能体**
 
 面向中国英语学习者（四六级/考研英语/雅思写作场景）的多智能体写作辅导工具。学生提交一篇英语作文，系统在数分钟内给出：
 
@@ -25,7 +26,7 @@
 当前进度（本轮已经在真实GPU训练服务器上把主链路全部跑通，不再是"骨架"）：
 
 - **全部真实跑通、不是占位**：数据（真实ASAP-AES 12879条清洗后样本，8个essay_set全覆盖）→ EDA → 两条评分模型训练（路径A微调DistilBERT测试集QWK=0.693，路径B自建BiLSTM从零训练QWK=0.622）→ RAG知识库（120个chunk，来自真实rubric+prompt数据）→ LangGraph全链路（intake→retrieval→scoring→grammar→feedback→coach→progress）→ SQLite持久化，全部用`scripts/e2e_graph_test.py`在训练服务器上验证过，`qualitative_feedback`/`revision_plan`是DeepSeek的真实生成内容，不是mock。Streamlit（`app.py`）也在服务器上以headless模式实测过能正常serve（HTTP 200）。
-- **诚实的缺口**：分项`trait_scores`目前是整体分的占位复制，不是单独训练的多头输出（见`Docs/03-模型训练与微调方案.md`顶部说明，之前文档把这个写成"已确认主线方案"是不准确的，本轮已经改正）；`grammar_check_node`仍是Day3占位（没接`language_tool_python`）；`CriticAgentNode`反思循环没做（本来就是stretch goal）；正式的SSH部署（`Docs/RUNNING.md`第8节，部署到`121.41.238.92`）还没做。
+- **诚实的缺口**：分项`trait_scores`三项（content/organization/language）都已经从"整体分纯复制占位"改成grammar_check_node驱动的启发式信号（词汇丰富度/段落结构/语法错误密度），**但仍然不是单独训练的多头输出**，见`Docs/03-模型训练与微调方案.md`顶部说明和`src/agents/nodes.py`里的详细注释，答辩时不能说成"已完成多头训练"；`grammar_check_node`已实现为纯Python正则规则库（评估后放弃`language_tool_python`，见"不要重新踩的坑"）；`CriticAgentNode`反思循环没做（本来就是stretch goal）；正式的SSH部署已经做完并全链路验证通过（`Docs/RUNNING.md`第8节，部署在`121.41.238.92:8503`，代码在`/root/sukai/`，`curl http://121.41.238.92:8503`外网实测返回200，`scripts/e2e_graph_test.py`在部署环境里跑通全部场景）。essay_set 8的低QWK已有真实诊断（训练样本量578条明显少于其他集合1252~1440条，残差与真实分数相关系数-0.73，向均值收缩症状），见`models/set8_diagnosis.json`。
 - **本地开发环境限制**：本仓库所在的这个开发环境`pip install`用不了（网络层SSLEOFError，详情见"环境信息"），所以上述所有"真实跑通"都是在另一台训练服务器（`ssh retinascope-server`）上做的，不是在这台机器上。
 - **模型权重通过GitHub Release分发，不进git历史**：微调模型的`pytorch_model.bin`约265MB，超过GitHub单文件100MB的硬限制。两条模型的权重+tokenizer/vocab/config已经从训练服务器拉回本地并上传到 [`models-v1.0.0`](https://github.com/BCXiaoxue/RAG_Writing/releases/tag/models-v1.0.0) 这个Release，`.gitignore`排除了所有模型产出物（权重/tokenizer/vocab/config），只保留体积小的`training_log.json`。**下载方式见根目录`README.md`「模型权重下载」和`scripts/download_models.py`**——仓库当前私有，下载需要在`.env`配好`GITHUB_TOKEN`，转public后就不需要了。`scoring_tool_node`/`retrieval_agent_node`在模型/知识库文件不存在时会自动降级回占位逻辑并打印`warnings.warn(...)`明确提示，不会报错崩溃、也不会静默装作是真实结果。
 - 详细过程、踩过的坑（HF的Xet存储卡死、这台服务器根分区写满、pkill误杀生产容器的教训等）见`Docs/RUNNING.md`「0.5 本轮已经在训练服务器上把全部流程实际跑通了一遍」和`Docs/Progress.md`最新一轮记录。
@@ -75,7 +76,10 @@
 | `03-模型训练与微调方案.md` | 模型选型（微调+自建两条路径）、训练配置、评估指标、"225原则"含义说明 |
 | `04-四天开发计划与分工.md` | 4人4天任务拆解与里程碑 |
 | `05-答辩材料与演示话术.md` | PPT大纲、演示脚本、预设问答 |
-| `06-本轮成果与复现步骤.md` | **本轮真实训练结果汇总+复现步骤，第一次接手/想快速了解当前真实进度先看这个** |
+| `07-数据处理与前端操作手册.md` | 林奕琳负责：数据处理+Streamlit四页面的操作手册与答辩问答 |
+| `08-部署操作手册.md` | 毛陈荣负责：部署到`121.41.238.92`的操作手册与答辩问答 |
+| `09-模型训练与Agent编排操作手册.md` | 田溯开负责：两条评分模型训练+LangGraph+RAG的操作手册与答辩问答 |
+| `10-系统测试操作手册.md` | 史翼嘉负责：全部测试脚本的操作手册与答辩问答 |
 | `RUNNING.md` | 环境搭建、运行、测试步骤 |
 | `Progress.md` | 每轮工作记录 |
 | `TODO.md` | 待办清单 + 需要你决策的事项 |
@@ -110,11 +114,12 @@ streamlit run app.py                              # 四页面UI，headless模式
 - **训练服务器(`retinascope-server`)的根分区(`/`)是满的，只能在`/data/wangchen/tiansukai/RAG/`下操作**；HuggingFace的大文件下载要加`HF_HUB_DISABLE_XET=1`否则会卡死在0字节；Python裸`urllib`/`ssl`调用在这台机器上会因为自定义OpenSSL证书目录是空的而报`certificate verify failed`（`langchain_openai`/`requests`等库因为默认走`certifi`不受影响）。完整细节见`Docs/RUNNING.md`「0.5 本轮已经在训练服务器上把全部流程实际跑通了一遍」。
 - **GitHub单文件超100MB会被硬性拒绝push，Git LFS和"发布Release"是两种不同的应对方案**：微调模型的265MB权重文件选了后者（GitHub Release资产），不是Git LFS，两者操作方式和后续下载方式完全不同，别搞混——Release资产用`scripts/download_models.py`或`Docs`里记录的REST API方式下载，不是`git lfs pull`。
 - **仓库私有时，GitHub Release资产不能匿名下载**：`browser_download_url`直接请求私有仓库的Release资产会返回404，必须用`Authorization: Bearer <token>`走`https://api.github.com/repos/{owner}/{repo}/releases/assets/{id}`这个API端点（`Accept: application/octet-stream`）才能拿到文件内容，`scripts/download_models.py`已经处理了这个区别（有`GITHUB_TOKEN`就走API下载，没有就走匿名`browser_download_url`，仓库转public后两种都行）。
+- **`grammar_check_node`最终选了纯Python正则规则库，没用`requirements.txt`里原来列的`language_tool_python`**：这个库会打包Java版LanguageTool引擎（首次运行要下载约200MB+），且需要本机装Java——`deploy-server`磁盘当时只剩9.3G、且没确认装了Java，Day3才发现临近Day4部署这个时间点不适合引入这种重量级新依赖的不确定性，改用零新增依赖的正则规则库（覆盖重复用词/情态动词+of误用/双重否定/句首大小写/标点空格/常见拼写，见`src/agents/nodes.py`），已从`requirements.txt`移除`language-tool-python`。如果以后磁盘/时间充裕，可以再评估切换回`language_tool_python`获得更全面的语法检查覆盖。
 - **`121.41.238.92`(`deploy-server`)是共用服务器，部署我们的应用前必须先看清楚已经在跑什么**：`docker ps`显示端口`8501`已经被一个叫`ophthalmic-ai`的生产容器占用（健康运行2个月），`80`/`8080`/`8502`也被别的python3进程占了。这台机器和`retinascope-server`一样，都是"看起来能随便用，实际上别的服务已经在上面跑"的类型——**部署前一律先`docker ps`+`ss -tlnp`确认端口/资源没有冲突，我们的Streamlit应用固定用`8503`**（已确认当前空闲），别想当然用默认的`8501`。
 
 ## 已确认、不要再改的设计决策
 
-- 项目题目：慧笔（HuiBi）——基于LangChain+LangGraph的英语写作智能批改与个性化学习伴学系统。领域选定为"教育"（用户明确要求：若有好获取的开源数据集则优先教育领域），数据集为Kaggle ASAP-AES。
+- 项目题目：慧笔（HuiBi）——基于LangChain+LangGraph的英语写作智能批改与个性化学习伴学智能体。领域选定为"教育"（用户明确要求：若有好获取的开源数据集则优先教育领域），数据集为Kaggle ASAP-AES。
 - LLM推理后端：主力DeepSeek V4 Flash，免费/兜底GLM-4.7-Flash，**两个Key都已验证真实可用**（`scripts/check_llm_key.py`两个都返回"调通成功"），双供应商fallback真的有两条腿了。真实API Key存在本地`01-源代码/.env`（已被`.gitignore`排除），**不要把真实Key写进任何`Docs/*.md`或其他会被提交的文件**——这个问题已经连续两轮发生（DeepSeek Key、后来又是Kaggle Token+GLM Key），每次都清理了但别再重犯，见`Docs/TODO.md`"安全提醒"。
 - 模型构建：三条路径都做——① DeepSeek/GLM负责生成类任务；② 微调BERT系模型（路径A，实际用`distilbert-base-uncased`，测试集QWK=0.693）；③ 从零构建、不依赖预训练权重的BiLSTM+Attention模型（路径B，测试集QWK=0.622）。两个自训练评分模型分别覆盖"预训练模型-微调"和"自定义构建模型"两个加分选项，已经训练完成、有真实QWK对比数据，见`Docs/03-模型训练与微调方案.md`。
 - 评分模型的分项输出（内容/结构/语言）**目前是整体分的占位复制，不是真正的多头训练**——之前文档写成"已确认主线方案"是不准确的，本轮训练时发现各essay_set的trait标注字段不统一、需要额外的掩码多任务设计，已把这个改成Day3/4待办，不要再当成"已完成"来汇报，见`Docs/03-模型训练与微调方案.md`顶部说明。
@@ -134,4 +139,5 @@ streamlit run app.py                              # 四页面UI，headless模式
 - 已存在`01-源代码/.env`（真实密钥，已被`.gitignore`排除）、`.env.example`（占位模板）、`.gitignore`。目前`.env`里有：`DEEPSEEK_API_KEY`/`GLM_API_KEY`（均已验证）、`KAGGLE_API_TOKEN`（已验证能访问API，下载被"需手动接受比赛规则"卡住）、`GITHUB_TOKEN`（**有仓库写权限，用于发布Release，比其他Key更敏感**）、`DEPLOY_HOST`等部署服务器信息。
 - **训练用GPU资源已确定**：`ssh retinascope-server`（配置在`~/.ssh/config`，IdentityFile`id_ed25519_retinascope`），8×A100 40GB，Python 3.10.12。项目代码/环境放在`/data/wangchen/tiansukai/RAG/`（**不是**`/root/`下，根分区已满，见"不要重新踩的坑"）。这台机器同时也部署着田溯开的RetinaScope项目（Docker容器`retinascope_app`，端口8501），操作时要注意不要影响到它（尤其是进程管理，只能精确PID）。
 - 部署目标服务器`121.41.238.92`和训练服务器`retinascope-server`是**两台不同的机器**，不要混淆：前者用于Day4最终部署跑Streamlit对外服务，后者用于Day2/3训练模型、开发调试。
-- **`deploy-server`（`121.41.238.92`）已配置SSH访问并实测连通**：`ssh deploy-server`，配置在`~/.ssh/config`（`IdentityFile ~/.ssh/id_rsa`，注意和`retinascope-server`用的`id_ed25519_retinascope`是不同的密钥）。这台机器根分区40G，已用28G，只剩9.3G可用，Ubuntu 24.04，无GPU，Docker已装好（29.4.1）。
+- **`deploy-server`（`121.41.238.92`）已配置SSH访问并实测连通**：`ssh deploy-server`，配置在`~/.ssh/config`（`IdentityFile ~/.ssh/id_rsa`，注意和`retinascope-server`用的`id_ed25519_retinascope`是不同的密钥）。阿里云ECS（`cn-hangzhou`区域，实例`i-bp13v9vqfgbj2iygazp9`，可用`curl http://100.100.100.200/latest/meta-data/`这个实例元数据接口查到，不需要登录控制台），Ubuntu 24.04，根分区40G，无GPU，Docker已装好（29.4.1）。**部署已完整完成并全链路验证通过**（代码在`/root/sukai/`）：装完全部依赖（torch用CPU-only版本）后磁盘剩约6.2G可用（部署前是9.3G）；外网访问`http://121.41.238.92:8503`此前被云安全组拦截，用户在阿里云控制台放通8503端口后，`curl`外网实测返回HTTP 200。
+- **`deploy-server`只有1.6G内存，是这台机器最大的隐藏限制（比磁盘更容易踩坑）**：`free -h`显示总内存`1.6Gi`，`EssayScorer`加载微调DistilBERT一次就占约800MB常驻内存（`dmesg`里`anon-rss:837020kB`）。Streamlit常驻服务本身已经加载了一份模型；如果这时候再另起一个进程（比如手动跑`scripts/e2e_graph_test.py`做验证）会同时加载第二份模型，触发Linux OOM killer杀掉进程——**本轮实际发生过一次**：`dmesg | grep -i oom`能看到`Out of memory: Killed process ... (python)`的真实记录，当时的连锁反应是系统内存被打满后SSH本身的`sshd`也响应迟缓，表现成"SSH连接banner exchange超时"长达十几分钟，一度以为是网络问题，排查后才发现是内存不是网络。**以后要在这台服务器上跑任何会加载模型的验证脚本，必须先用精确PID停掉正在跑的Streamlit，跑完测试再重新启动**，不要让两个模型加载进程同时存在。

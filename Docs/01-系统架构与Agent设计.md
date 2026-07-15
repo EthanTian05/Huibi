@@ -63,8 +63,8 @@ class EssayReviewState(TypedDict):
 |---|---|---|---|---|
 | `IntakeValidatorNode` | 规则+轻量判断（可用小模型或规则） | `essay_text` | `is_valid`, `reject_reason` | 校验作文长度是否合理、是否明显偏题/灌水；不合格则短路返回，避免浪费后续调用 |
 | `RetrievalAgentNode` | RAG检索 | `essay_prompt_id`, `essay_text` | `retrieved_context` | 从Chroma向量库中检索该题目对应的评分细则、相关语法规则卡片、高/低分范文片段 |
-| `ScoringToolNode` | 工具调用（本地推理） | `essay_text`, `essay_prompt_id` | `quant_score`, `trait_scores` | 调用`EssayScorer`（内部融合路径A微调模型与路径B自定义构建模型），产出量化评分与分项评分，同时覆盖"预训练模型-微调"与"自定义构建模型"加分项 |
-| `GrammarCheckNode` | 工具调用 | `essay_text` | `grammar_errors` | 语法/拼写检查（如`language_tool_python`或轻量规则库），为FeedbackAgent提供具体错误位置 |
+| `ScoringToolNode` | 工具调用（本地推理） | `essay_text`, `essay_prompt_id` | `quant_score`, `trait_scores` | 调用`EssayScorer`（路径A微调模型占0.95、路径B自定义构建模型占0.05的非等权融合），产出量化评分与分项评分，同时覆盖"预训练模型-微调"与"自定义构建模型"加分项 |
+| `GrammarCheckNode` | 工具调用 | `essay_text` | `grammar_errors` | 纯Python正则规则库做语法/拼写检查（评估后放弃`language_tool_python`，见`Docs/TODO.md`），为FeedbackAgent提供具体错误位置，并驱动`trait_scores`三项（content/organization/language）的启发式调整 |
 | `FeedbackAgentNode` | LLM推理 | `essay_text`, `retrieved_context`, `quant_score`, `grammar_errors` | `qualitative_feedback` | 用通用大模型生成结构化定性反馈：优点、不足、逐条语法纠正（英文原句+中文讲解） |
 | `CoachAgentNode` | LLM推理 | `qualitative_feedback`, `history_summary` | `revision_plan` | 结合该用户历史弱项，生成个性化修改建议和1~2道针对性练习题 |
 | `ProgressTrackerNode` | 数据写入 | 本次完整结果 | 写入SQLite | 记录本次提交的评分/分项/错误类型，更新该用户的进步曲线与弱项统计 |
@@ -95,7 +95,7 @@ stateDiagram-v2
 
 | 工具名 | 封装方式 | 说明 |
 |---|---|---|
-| `essay_scorer_tool` | 包装`EssayScorer`（微调模型+自建模型融合）的推理函数为LangChain Tool | 输入作文文本+题目集ID，输出量化评分与分项评分（0-100归一化后的分数） |
+| `essay_scorer_tool` | 包装`EssayScorer`（微调模型0.95 + 自建模型0.05的非等权融合）的推理函数为LangChain Tool | 输入作文文本+题目集ID，输出量化评分与分项评分（0-100归一化后的分数） |
 | `grammar_check_tool` | 包装语法检查库/正则规则集 | 输出错误列表（错误片段、错误类型、建议修正） |
 | `rubric_retriever_tool` | LangChain Retriever（Chroma） | 按题目集检索对应评分细则文本 |
 | `sample_essay_retriever_tool` | LangChain Retriever（Chroma） | 检索该题目集下的高分/低分范文片段用于对比说明 |

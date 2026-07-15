@@ -9,7 +9,10 @@
 部分子集只有rater1_trait1~6，部分子集完全没有trait标注），要做成规范的多任务
 学习需要额外的掩码损失设计，属于Day3/4的增量工作，本轮没有做。这里的
 `trait_scores`是从整体分复制出来的占位值，不是单独训练出来的分项预测，
-文档和代码里都要如实说明这一点，不能当成"已完成的多头训练"来汇报。
+文档和代码里都要如实说明这一点，不能当成"已完成的多头训练"来汇报。Day3
+之后`src/agents/nodes.py`的`grammar_check_node`会用词汇丰富度/段落结构/
+语法错误密度这几个启发式信号覆写这里的三项初始值，比纯复制更有信号支撑，
+但**仍然不是训练出来的多头预测**，这里的实现本身不变。
 """
 from __future__ import annotations
 
@@ -23,6 +26,9 @@ from src.training.common import load_score_ranges
 
 FINETUNED_DIR = Path("models/essay-scorer-finetuned/v1")
 CUSTOM_DIR = Path("models/essay-scorer-custom/v1")
+# 在1288条验证集上以0.05步长搜索后确定；见models/weighted_ensemble_eval.json。
+FINETUNED_ENSEMBLE_WEIGHT = 0.95
+CUSTOM_ENSEMBLE_WEIGHT = 0.05
 
 
 class EssayScorer:
@@ -45,7 +51,7 @@ class EssayScorer:
         with open(FINETUNED_DIR / "training_log.json", "r", encoding="utf-8") as f:
             log = json.load(f)
         model_name = log["model_name"]
-        model = ScorerModel(model_name)
+        model = ScorerModel(model_name, local_files_only=True)
         model.load_state_dict(torch.load(FINETUNED_DIR / "pytorch_model.bin", map_location=self.device))
         model.to(self.device).eval()
         self._finetuned = model
@@ -78,8 +84,9 @@ class EssayScorer:
     def predict(self, essay_text: str, essay_set: int) -> dict:
         """返回{"score": 原始量纲的整体分, "score_norm": 0-1分数,
         "traits": {content/organization/language占位值}, "source": "ensemble"}。
+        当A、B均可用时，ensemble固定为0.95 × A + 0.05 × B。
         """
-        scores_norm = []
+        scores_norm: dict[str, float] = {}
 
         if FINETUNED_DIR.exists():
             self._load_finetuned()
@@ -88,14 +95,14 @@ class EssayScorer:
                 padding="max_length", return_tensors="pt",
             )
             pred = self._finetuned(enc["input_ids"].to(self.device), enc["attention_mask"].to(self.device))
-            scores_norm.append(float(pred.item()))
+            scores_norm["finetuned"] = float(pred.item())
 
         if CUSTOM_DIR.exists():
             self._load_custom()
             ids = self._custom_encode(essay_text, self._custom_vocab, self._custom_config["max_length"])
             input_ids = torch.tensor([ids], dtype=torch.long).to(self.device)
             pred = self._custom(input_ids)
-            scores_norm.append(float(pred.item()))
+            scores_norm["custom"] = float(pred.item())
 
         if not scores_norm:
             raise RuntimeError(
@@ -103,13 +110,22 @@ class EssayScorer:
                 "models/essay-scorer-custom/v1 都不存在），请先跑 src/training/ 下的训练脚本。"
             )
 
-        avg_norm = sum(scores_norm) / len(scores_norm)
-        score = self._denormalize(avg_norm, essay_set)
+        if len(scores_norm) == 2:
+            # 非等权融合：权重在验证集选定，不能在测试集上调参。
+            score_norm = (
+                FINETUNED_ENSEMBLE_WEIGHT * scores_norm["finetuned"]
+                + CUSTOM_ENSEMBLE_WEIGHT * scores_norm["custom"]
+            )
+            source = "ensemble"
+        else:
+            source, score_norm = next(iter(scores_norm.items()))
+
+        score = self._denormalize(score_norm, essay_set)
 
         return {
             "score": score,
-            "score_norm": avg_norm,
+            "score_norm": score_norm,
             # 占位：三个维度目前都是整体分的复制，不是分别训练出来的分项预测，见本文件顶部说明
-            "traits": {"content": avg_norm, "organization": avg_norm, "language": avg_norm},
-            "source": "ensemble" if len(scores_norm) == 2 else ("finetuned" if FINETUNED_DIR.exists() else "custom"),
+            "traits": {"content": score_norm, "organization": score_norm, "language": score_norm},
+            "source": source,
         }

@@ -38,10 +38,18 @@ def test_scoring_tool_stub():
     print("scoring_tool_node（占位启发式）OK:", result["quant_score"])
 
 
-def test_grammar_check_stub():
-    result = nodes.grammar_check_node({"essay_text": "anything"})
-    assert result["grammar_errors"] == []
-    print("grammar_check_node（占位）OK")
+def test_grammar_check_rules():
+    clean = nodes.grammar_check_node({"essay_text": "This is a clean sentence with no issues."})
+    assert clean["grammar_errors"] == [], f"不应该有误报: {clean['grammar_errors']}"
+
+    text = "i recieve good grades, but i should of studied more. This is is a test."
+    result = nodes.grammar_check_node({"essay_text": text})
+    types = {e["type"] for e in result["grammar_errors"]}
+    assert "spelling" in types, "应该检测出recieve拼写错误"
+    assert "modal_of" in types, "应该检测出should of误用"
+    assert "repeated_word" in types, "应该检测出is is重复"
+    assert "lowercase_i" in types, "应该检测出小写i"
+    print(f"grammar_check_node（规则库）OK: 检测到{len(result['grammar_errors'])}处问题")
 
 
 def test_db_roundtrip():
@@ -69,6 +77,6 @@ def test_db_roundtrip():
 if __name__ == "__main__":
     test_intake_validator()
     test_scoring_tool_stub()
-    test_grammar_check_stub()
+    test_grammar_check_rules()
     test_db_roundtrip()
     print("\n全部Day1无依赖冒烟测试通过。")

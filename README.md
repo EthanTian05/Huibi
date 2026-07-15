@@ -1,6 +1,6 @@
 # 慧笔 HuiBi
 
-基于LangChain + LangGraph的英语写作智能批改与个性化学习伴学系统。项目背景、需求对照、架构设计、训练结果等完整文档见 [`CLAUDE.md`](CLAUDE.md) 和 [`Docs/`](Docs/) 目录（先看 [`Docs/06-本轮成果与复现步骤.md`](Docs/06-本轮成果与复现步骤.md) 了解当前真实进度）。
+基于LangChain + LangGraph的英语写作智能批改与个性化学习伴学智能体。项目背景、需求对照、架构设计、训练结果等完整文档见 [`CLAUDE.md`](CLAUDE.md) 和 [`Docs/`](Docs/) 目录（先看 `Docs/Progress.md` 最新一轮记录了解当前真实进度）。
 
 ## 快速开始
 

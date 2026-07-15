@@ -20,7 +20,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, DistilBertConfig
 
 from src.training.common import load_score_ranges, macro_qwk
 
@@ -61,9 +61,17 @@ class EssayDataset(Dataset):
 class ScorerModel(nn.Module):
     """预训练encoder + 回归头，输出压到[0,1]匹配归一化后的分数。"""
 
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, local_files_only: bool = False):
         super().__init__()
-        self.encoder = AutoModel.from_pretrained(model_name)
+        try:
+            self.encoder = AutoModel.from_pretrained(model_name, local_files_only=local_files_only)
+        except OSError:
+            # 推理环境可能只有训练后的state_dict、没有Hugging Face缓存且不能联网。
+            # distilbert-base-uncased使用标准DistilBertConfig，按该配置构建空网络后
+            # 再由调用方加载完整checkpoint即可，不会改变训练时保存的模型结构。
+            if model_name != "distilbert-base-uncased":
+                raise
+            self.encoder = AutoModel.from_config(DistilBertConfig())
         hidden_size = self.encoder.config.hidden_size
         self.dropout = nn.Dropout(0.1)
         self.regressor = nn.Linear(hidden_size, 1)
