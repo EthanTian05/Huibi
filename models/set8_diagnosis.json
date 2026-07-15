@@ -1,0 +1,29 @@
+{
+  "train_set_size_per_essay_set": {
+    "1": 1424,
+    "2": 1440,
+    "3": 1363,
+    "4": 1382,
+    "5": 1430,
+    "6": 1434,
+    "7": 1252,
+    "8": 578
+  },
+  "set8_n_test_examples": 72,
+  "set8_true_score_range": [
+    20,
+    60
+  ],
+  "set8_true_score_mean_std": [
+    37.18055555555556,
+    5.963608128774077
+  ],
+  "set8_pred_score_mean_std": [
+    40.54356482811272,
+    4.401293051590368
+  ],
+  "residual_mean_bias": 3.363009272557166,
+  "residual_std": 5.939882969049218,
+  "residual_vs_true_score_corr": -0.7265795645452843,
+  "note": "residual_vs_true_score_corr明显为负，说明真实高分被系统性低估、真实低分被系统性高估（回归模型在样本稀疏+分值范围宽的essay_set上常见的'向均值收缩'现象），train_set_size_per_essay_set可以看set8训练样本量是否确实明显少于其他集合。"
+}

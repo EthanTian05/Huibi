@@ -11,7 +11,8 @@
 - `retrieval_agent_node`：真实实现，检索本轮已构建好的Chroma向量库
   （`data/processed/chroma_kb`，120个chunk，来自8个essay_set的真实rubric/
   prompt + 语法卡片）。
-- `grammar_check_node`：仍是Day3占位（还没接`language_tool_python`）。
+- `grammar_check_node`：Day3已实现，纯Python正则规则库（不是`language_tool_python`，
+  见函数上方注释说明为什么选规则库而非该依赖）。
 
 注意：涉及LLM调用/模型加载的函数把import放在函数体内（懒加载），不放在模块
 顶部——这样`intake_validator_node`这类不需要额外依赖的逻辑，可以在没装
@@ -123,10 +124,136 @@ def scoring_tool_node(state: EssayReviewState) -> EssayReviewState:
     return {**state, "quant_score": result["score_norm"], "trait_scores": result["traits"]}
 
 
+import re
+import statistics
+
+# 规则库方案（而非language_tool_python）：language_tool_python需要打包的Java版
+# LanguageTool引擎（下载约200MB+要求本机装Java），在部署服务器121.41.238.92
+# 磁盘只剩9.3G、且未确认装了Java的情况下风险偏高，4天工期临近Day4部署，
+# 选风险更低的纯Python规则库方案，不引入新的pip依赖，见Docs/TODO.md本轮决策记录。
+_MISSPELLINGS = {
+    "recieve": "receive", "seperate": "separate", "definately": "definitely",
+    "occured": "occurred", "wich": "which", "untill": "until",
+    "goverment": "government", "enviroment": "environment", "arguement": "argument",
+    "begining": "beginning", "concious": "conscious", "wether": "whether",
+    "neccessary": "necessary", "accomodate": "accommodate", "acheive": "achieve",
+    "publically": "publicly", "priviledge": "privilege",
+    "thier": "their", "becuase": "because", "diffrent": "different",
+    "alot": "a lot", "truely": "truly", "excelent": "excellent",
+}
+
+# (pattern, type, message, case_sensitive) —— case_sensitive=True的规则不加IGNORECASE，
+# 否则像"lowercase_i"这类依赖大小写本身的规则会对已经正确大写的文本产生误判。
+_GRAMMAR_PATTERNS: list[tuple[str, str, str, bool]] = [
+    (r"\b(\w+)\s+\1\b", "repeated_word", "重复用词", False),
+    (r"\bshould of\b", "modal_of", "情态动词后误用of，应为have（should have）", False),
+    (r"\bwould of\b", "modal_of", "情态动词后误用of，应为have（would have）", False),
+    (r"\bcould of\b", "modal_of", "情态动词后误用of，应为have（could have）", False),
+    (r"\b(?:don'?t|doesn'?t|didn'?t|can'?t|won'?t|isn'?t|aren'?t)\b[^.!?]{0,40}?\bno(?:ne|thing|body)?\b",
+     "double_negative", "双重否定", False),
+    (r"(?<![\w'])i(?![\w'])", "lowercase_i", "第一人称单数I应大写", True),
+    (r"\s+[,.!?;:]", "space_before_punct", "标点符号前多余的空格", False),
+    (r"[,.!?;:](?=[A-Za-z])", "no_space_after_punct", "标点符号后缺少空格", False),
+]
+
+
+def _check_sentence_capitalization(text: str) -> list[dict]:
+    errors = []
+    for m in re.finditer(r"(?:^|[.!?]\s+)([a-z])", text):
+        errors.append({
+            "type": "capitalization",
+            "position": [m.start(1), m.end(1)],
+            "context": text[max(0, m.start(1) - 15):m.end(1) + 15],
+            "message": "句首字母应大写",
+            "suggestion": m.group(1).upper(),
+        })
+    return errors
+
+
+def _check_misspellings(text: str) -> list[dict]:
+    errors = []
+    for m in re.finditer(r"[A-Za-z']+", text):
+        word = m.group(0)
+        fix = _MISSPELLINGS.get(word.lower())
+        if fix:
+            errors.append({
+                "type": "spelling",
+                "position": [m.start(), m.end()],
+                "context": text[max(0, m.start() - 15):m.end() + 15],
+                "message": f"疑似拼写错误：{word}",
+                "suggestion": fix,
+            })
+    return errors
+
+
+def _heuristic_content_organization_penalty(text: str) -> tuple[float, float]:
+    """用可观察的文本信号（词汇丰富度、分段/句长结构）给content/organization
+    算一个启发式扣分，而不是让它们一直等于整体分的纯复制。**这仍然不是训练出来
+    的多头预测**——只是比"完全不看文本、直接复制整体分"更有信号支撑的近似，
+    答辩时要讲清楚这个区别（见Docs/03-模型训练与微调方案.md顶部说明）。
+    """
+    words = re.findall(r"[A-Za-z']+", text.lower())
+    word_count = max(len(words), 1)
+
+    # content：词汇丰富度（type-token ratio）过低，说明用词重复、内容单薄
+    unique_ratio = len(set(words)) / word_count
+    content_penalty = max(0.0, min(0.3, (0.35 - unique_ratio) * 1.5)) if unique_ratio < 0.35 else 0.0
+
+    # organization：段落数过少（大段无分段）、或句长几乎没有变化（缺乏结构层次）
+    paragraphs = [p for p in re.split(r"\n\s*\n", text) if p.strip()]
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+    sentence_lengths = [len(s.split()) for s in sentences]
+
+    organization_penalty = 0.0
+    if len(paragraphs) <= 1 and word_count > 150:
+        organization_penalty += 0.15
+    if len(sentence_lengths) >= 3 and statistics.pstdev(sentence_lengths) < 2.0:
+        organization_penalty += 0.1
+    organization_penalty = min(0.3, organization_penalty)
+
+    return content_penalty, organization_penalty
+
+
 def grammar_check_node(state: EssayReviewState) -> EssayReviewState:
-    # Day2/3 TODO：接入language_tool_python或规则库，见
-    # Docs/01-系统架构与Agent设计.md「Agent使用的工具清单」。
-    return {**state, "grammar_errors": []}
+    """纯Python正则规则库的轻量语法检查，覆盖常见ESL错误类型（重复用词、
+    情态动词+of误用、双重否定、句首大小写、标点空格、常见拼写错误），
+    不是完整的语法解析器，比语言学意义上"全面"的NLP语法检查工具覆盖面窄，
+    但零新增依赖、可控、适合4天工期+磁盘紧张的部署服务器。
+    """
+    text = state.get("essay_text", "")
+    errors: list[dict] = []
+    errors.extend(_check_sentence_capitalization(text))
+    errors.extend(_check_misspellings(text))
+    for pattern, err_type, message, case_sensitive in _GRAMMAR_PATTERNS:
+        flags = 0 if case_sensitive else re.IGNORECASE
+        for m in re.finditer(pattern, text, flags=flags):
+            errors.append({
+                "type": err_type,
+                "position": [m.start(), m.end()],
+                "context": text[max(0, m.start() - 15):m.end() + 15],
+                "message": message,
+                "suggestion": None,
+            })
+    errors.sort(key=lambda e: e["position"][0])
+
+    # 用真实检测到的语法错误密度 + 词汇/结构启发式信号调整trait_scores三项，
+    # 不再是整体分的纯复制。**仍然不是训练出来的多头预测**——只是从"完全不看
+    # 文本内容"变成"有可观察信号支撑的启发式近似"，答辩时要讲清楚这个区别，
+    # 不能说成"已完成多头训练"，见src/training/essay_scorer.py顶部说明。
+    trait_scores = dict(state.get("trait_scores") or {})
+    word_count = max(len(text.split()), 1)
+    content_penalty, organization_penalty = _heuristic_content_organization_penalty(text)
+
+    if "language" in trait_scores:
+        error_rate = len(errors) / word_count
+        language_penalty = min(0.5, error_rate * 5)
+        trait_scores["language"] = max(0.0, min(1.0, trait_scores["language"] - language_penalty))
+    if "content" in trait_scores:
+        trait_scores["content"] = max(0.0, min(1.0, trait_scores["content"] - content_penalty))
+    if "organization" in trait_scores:
+        trait_scores["organization"] = max(0.0, min(1.0, trait_scores["organization"] - organization_penalty))
+
+    return {**state, "grammar_errors": errors, "trait_scores": trait_scores}
 
 
 FEEDBACK_PROMPT = """你是一名经验丰富的英语写作老师，面向中国的英语学习者（四六级/考研英语/雅思写作场景）。

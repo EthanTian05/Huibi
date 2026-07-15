@@ -144,28 +144,47 @@ PYTHONPATH=. python scripts/e2e_graph_test.py
 
 - 目标服务器：`121.41.238.92`，用户`root`，端口22，私钥登录，本机SSH别名`deploy-server`（配置在`~/.ssh/config`，`IdentityFile ~/.ssh/id_rsa`，已测试连通）。**这是Day4的最终部署机，和用于训练的`retinascope-server`是两台不同的机器，不要混淆**。
 - **这台机器不是空的，是共用服务器，部署前必须知道这些**（已实测确认）：
-  - 根分区`40G`总容量，已用`28G`，只剩`9.3G`可用——够部署一个Streamlit应用，但不宽裕，注意不要在这台机器上跑模型训练或存大量数据。
+  - 根分区`40G`总容量，部署前只剩`9.3G`可用、装完全部Python依赖后剩约`6.2G`——够用但不宽裕，注意不要在这台机器上跑模型训练或存大量数据。
+  - **内存只有1.6G，比磁盘更容易踩坑**：加载一次微调DistilBERT模型要占约800MB常驻内存，Streamlit常驻服务已经占了一份，这时候如果再起一个进程跑验证脚本会触发OOM killer（本轮部署时真实发生过，`dmesg`能看到`Out of memory: Killed process`记录，且内存打满时`sshd`会响应迟缓、表现成SSH连接长时间"banner exchange超时"，容易误判成网络问题）。**要跑加载模型的验证脚本，必须先精确PID停掉Streamlit，跑完再重启**。
   - **端口`80`、`8080`、`8501`、`8502`已经被占用**，其中`8501`是一个叫`ophthalmic-ai`的Docker容器（`docker ps`显示"Up 2 months (healthy)"，看内容像是田溯开另一个已上线的医疗项目），**绝对不要碰这个容器**（参考`RUNNING.md`「0.5」和`CLAUDE.md`里记录的pkill误杀生产容器的教训，这台机器上必须更谨慎）。我们的应用要用别的端口，见下方命令里已经改成了`8503`（当前实测空闲，正式部署前建议再用`ss -tlnp`确认一遍没被占用）。
+  - **云安全组默认没放通8503**：即使服务器本机`curl localhost:8503`返回200，外网也访问不了，这一步和服务器本机的`iptables`/`ufw`无关，是阿里云ECS控制台的安全组规则没放行，只能登录控制台加一条TCP 8503入站规则，SSH改不了。**本轮已经放通并验证过外网可访问**。
   - Docker本身是装好的（29.4.1），如果想用容器化部署也可以，但没有现成的nginx。
-- 部署方式：
+- 部署方式（**已实际执行过，代码在`/root/sukai/`，不是之前草稿写的`/root/huibi/`**）：
 
 ```bash
-# 1. 把代码同步到服务器（排除.env等敏感/大文件，用.gitignore同名规则参考）
-rsync -avz --exclude-from=.gitignore ./ deploy-server:/root/huibi/
+# 1. 把代码同步到服务器（本地开发机没有rsync，用tar+scp代替，排除.git/.venv/__pycache__/.env）
+tar --exclude='.git' --exclude='.venv' --exclude='__pycache__' --exclude='.env' -czf huibi_deploy.tar.gz .
+scp huibi_deploy.tar.gz deploy-server:/root/huibi_deploy.tar.gz
+ssh deploy-server "mkdir -p /root/sukai && cd /root/sukai && tar xzf /root/huibi_deploy.tar.gz && rm /root/huibi_deploy.tar.gz"
+# 注意：这个tar包会带上models/下的真实权重文件（.gitignore排除了它们，但部署必须要真实权重才能
+# 不降级成占位启发式评分，所以特意不用--exclude-from=.gitignore整个排除，只排除.git/.venv这些）
 
-# 2. 登录服务器，安装依赖
+# 2. 登录服务器，安装依赖（deploy-server无GPU，torch要装CPU-only版本，否则pip默认拉CUDA版体积大很多）
 ssh deploy-server
-cd /root/huibi && python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+cd /root/sukai && python3 -m venv .venv && source .venv/bin/activate
+pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+pip install --no-cache-dir -r requirements.txt
+# 磁盘只剩8.7G左右，装完全部依赖后建议 df -h / 确认还有空间，pip加--no-cache-dir避免缓存占地方
 
-# 3. 服务器上单独准备.env（不要通过rsync同步含真实Key的.env，改为登录后手动创建或用scp单独传输一次）
-# 4. 后台常驻运行（二选一），注意端口用8503，不要用被占用的8501/8502/80/8080
-#   a) tmux/nohup（最简单，适合4天工期）
-nohup streamlit run app.py --server.port 8503 --server.address 0.0.0.0 > streamlit.log 2>&1 &
-#   b) systemd服务（更规范，如时间允许可做）
+# 3. 服务器上单独准备.env（不要通过tar/rsync同步含真实Key的.env，用scp单独传一次）
+scp .env deploy-server:/root/sukai/.env
 
-# 5. 确认服务器防火墙/安全组放通8503端口
+# 4. 构建RAG知识库（chroma_kb目录本身gitignore了，没有跟着代码包一起过来，需要在服务器上重新生成）
+ssh deploy-server "cd /root/sukai && source .venv/bin/activate && export HF_ENDPOINT=https://hf-mirror.com HF_HUB_DISABLE_XET=1 && python -m src.rag.build_kb"
+
+# 5. 后台常驻运行，端口用8503，不要用被占用的8501/8502/80/8080
+#   推荐用 scripts/deploy_start.ps1 / scripts/deploy_stop.ps1（本地跑，SSH远程管理，只用精确PID
+#   停止进程，不用pkill -f模式匹配，见两个脚本文件开头的注释）：
+powershell -File scripts/deploy_start.ps1   # 启动+验证HTTP 200
+powershell -File scripts/deploy_stop.ps1    # 停止
+
+#   或者手动：
+nohup streamlit run app.py --server.port 8503 --server.address 0.0.0.0 > streamlit.log 2>&1 & echo $! > streamlit.pid
+kill $(cat streamlit.pid)   # 停止时只用这个精确PID，不要用pkill -f
+
+# 6. 确认服务器防火墙/安全组放通8503端口（已完成，见上方"云安全组默认没放通8503"）
 ```
 
-- 答辩前必须实测：从答辩现场网络能否访问`http://121.41.238.92:8503`（校园网/外网限制、防火墙规则都可能导致连不上），并准备好`RUNNING.md`第7节提到的离线演示预案兜底。
+- **部署状态：已完成，外网实测通过**（`curl http://121.41.238.92:8503`返回200，`scripts/e2e_graph_test.py`在部署环境里单独跑过一遍完整通过）。
+- 仍然建议：答辩前从答辩现场实际网络再实测一次`http://121.41.238.92:8503`（校园网/外网限制、防火墙规则可能和开发者所在网络不一样），并准备好`RUNNING.md`第7节提到的离线演示预案兜底。
 - 安全提醒：服务器用`root`直接部署仅为4天工期图快，如果这个项目之后要长期运行/给更多人用，建议改成非root部署用户；私钥文件本身任何时候都不要提交进仓库或粘贴进文档。

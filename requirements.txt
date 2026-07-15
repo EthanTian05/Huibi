@@ -13,4 +13,3 @@ transformers
 torch
 sentence-transformers
 chromadb
-language-tool-python

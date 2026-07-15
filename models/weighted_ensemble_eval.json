@@ -1,0 +1,130 @@
+{
+  "selection_protocol": "在验证集网格搜索权重；固定后仅在80条测试样本上评估",
+  "n_validation": 1288,
+  "n_test_sample": 80,
+  "weight_grid_step": 0.05,
+  "validation_candidates": [
+    {
+      "weight_a": 0.0,
+      "weight_b": 1.0,
+      "val_macro_qwk": 0.6086675493201215
+    },
+    {
+      "weight_a": 0.05,
+      "weight_b": 0.95,
+      "val_macro_qwk": 0.6144539673067773
+    },
+    {
+      "weight_a": 0.1,
+      "weight_b": 0.9,
+      "val_macro_qwk": 0.6280119939329394
+    },
+    {
+      "weight_a": 0.15,
+      "weight_b": 0.85,
+      "val_macro_qwk": 0.6353162103942362
+    },
+    {
+      "weight_a": 0.2,
+      "weight_b": 0.8,
+      "val_macro_qwk": 0.6463700585964384
+    },
+    {
+      "weight_a": 0.25,
+      "weight_b": 0.75,
+      "val_macro_qwk": 0.6524260630991461
+    },
+    {
+      "weight_a": 0.3,
+      "weight_b": 0.7,
+      "val_macro_qwk": 0.6652446904161571
+    },
+    {
+      "weight_a": 0.35,
+      "weight_b": 0.65,
+      "val_macro_qwk": 0.6718645625844344
+    },
+    {
+      "weight_a": 0.4,
+      "weight_b": 0.6,
+      "val_macro_qwk": 0.6767464292495275
+    },
+    {
+      "weight_a": 0.45,
+      "weight_b": 0.55,
+      "val_macro_qwk": 0.6826655870400433
+    },
+    {
+      "weight_a": 0.5,
+      "weight_b": 0.5,
+      "val_macro_qwk": 0.684119134482757
+    },
+    {
+      "weight_a": 0.55,
+      "weight_b": 0.44999999999999996,
+      "val_macro_qwk": 0.691856785728648
+    },
+    {
+      "weight_a": 0.6,
+      "weight_b": 0.4,
+      "val_macro_qwk": 0.6981684420044298
+    },
+    {
+      "weight_a": 0.65,
+      "weight_b": 0.35,
+      "val_macro_qwk": 0.7039070777986735
+    },
+    {
+      "weight_a": 0.7,
+      "weight_b": 0.30000000000000004,
+      "val_macro_qwk": 0.7045724707315886
+    },
+    {
+      "weight_a": 0.75,
+      "weight_b": 0.25,
+      "val_macro_qwk": 0.7075626900307505
+    },
+    {
+      "weight_a": 0.8,
+      "weight_b": 0.19999999999999996,
+      "val_macro_qwk": 0.7060514562037362
+    },
+    {
+      "weight_a": 0.85,
+      "weight_b": 0.15000000000000002,
+      "val_macro_qwk": 0.7048115907006197
+    },
+    {
+      "weight_a": 0.9,
+      "weight_b": 0.09999999999999998,
+      "val_macro_qwk": 0.7048444526889373
+    },
+    {
+      "weight_a": 0.95,
+      "weight_b": 0.050000000000000044,
+      "val_macro_qwk": 0.708150106432847
+    },
+    {
+      "weight_a": 1.0,
+      "weight_b": 0.0,
+      "val_macro_qwk": 0.7067919210558012
+    }
+  ],
+  "selected_weight": {
+    "weight_a": 0.95,
+    "weight_b": 0.050000000000000044,
+    "val_macro_qwk": 0.708150106432847
+  },
+  "test_macro_qwk": 0.7589421411774981,
+  "test_per_set_qwk": {
+    "1": 0.7096774193548387,
+    "2": 1.0,
+    "3": 0.6753246753246753,
+    "4": 0.8275862068965517,
+    "5": 0.8876404494382022,
+    "6": 0.5833333333333333,
+    "7": 0.7439353099730459,
+    "8": 0.6440397350993378
+  },
+  "test_equal_weight_macro_qwk": 0.755849838467554
+}

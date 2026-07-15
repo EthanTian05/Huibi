@@ -1,0 +1,25 @@
+{
+  "method": "llm_zero_shot_prompting",
+  "model": "deepseek-v4-flash",
+  "n_per_set": 10,
+  "n_total_sampled": 80,
+  "n_failures": 0,
+  "seed": 42,
+  "per_set_qwk": {
+    "1": 0.042437431991294905,
+    "2": 0.6153846153846154,
+    "3": 0.47368421052631593,
+    "4": 0.5454545454545454,
+    "5": 0.3650793650793651,
+    "6": 0.5098039215686274,
+    "7": 0.061719990923530754,
+    "8": 0.4623553046972161
+  },
+  "macro_qwk": 0.38448992320318887,
+  "comparison": {
+    "note": "以下两个是训练模型在全量测试集(1288+条)上的QWK，和这里的80条零样本抽样不是同一分母，仅供参考。公平对比（同样80条essay_id）见models/same_sample_trained_eval.json：训练模型macro_qwk=0.7558，本文件zero-shot macro_qwk=0.3845。",
+    "finetuned_distilbert_test_qwk_full_testset": 0.6931410426487992,
+    "custom_bilstm_test_qwk_full_testset": 0.6224375713005985,
+    "same_sample_fair_comparison_file": "models/same_sample_trained_eval.json"
+  }
+}
