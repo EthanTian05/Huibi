@@ -1,0 +1,25 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 只装跑这份零依赖pytest套件需要的最小集合（pytest本身 + langgraph用来
+      # 测路由函数），不装langchain/torch/transformers/chromadb/psycopg这些
+      # 重依赖——完整链路的真实调用测试（scripts/e2e_graph_test.py）需要真实
+      # API Key和本地PostgreSQL，不适合在CI里跑，仍然是手动验证的范围。
+      - name: Install test dependencies
+        run: pip install pytest langgraph
+
+      - name: Run pytest
+        run: pytest -v
