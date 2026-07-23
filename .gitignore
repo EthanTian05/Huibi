@@ -1,11 +1,14 @@
 .env
 .venv/
+.venv-uv/
 __pycache__/
 *.pyc
 
 data/raw/
 data/processed/*.csv
 data/processed/chroma_kb/
+data/*.db
+data/uploads/
 models/**/*.bin
 models/**/*.safetensors
 models/**/vocab.txt
@@ -18,3 +21,7 @@ models/**/model_config.json
 .streamlit/secrets.toml
 *.key
 id_rsa
+
+# 已删除的自训练评分模型阶段留下的评测产物（批量打分结果、临时sqlite库），
+# 不是源码，本地实验输出，不需要进版本库。
+reports/
