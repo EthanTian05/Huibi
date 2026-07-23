@@ -4,7 +4,7 @@ langchain-openai
 langchain-community
 langchain-text-splitters
 python-dotenv
-streamlit
+streamlit>=1.37
 pandas
 scikit-learn
 matplotlib
@@ -13,3 +13,4 @@ transformers
 torch
 sentence-transformers
 chromadb
+psycopg[binary]

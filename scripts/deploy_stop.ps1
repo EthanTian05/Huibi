@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     停止部署在deploy-server(121.41.238.92)上的慧笔Streamlit服务。
 

@@ -1,20 +1,28 @@
-"""Day1手动冒烟测试：只测不依赖langchain/langgraph的部分（intake校验、
-评分占位启发式、SQLite读写），因为当前开发环境pip被网络环境挡住装不了包
-（见Docs/Progress.md和CLAUDE.md「环境信息」），这部分先用纯标准库验证跑通。
+"""Day1手动冒烟测试：只测不依赖langchain/langgraph/psycopg的部分（intake校验、
+评分逻辑、语法检查），因为当前开发环境pip被网络环境挡住装不了包（见
+Docs/02-Progress.md和CLAUDE.md「环境信息」），这部分先用纯标准库验证跑通。
 
-完整链路（含Graph编排、LLM生成）需要在能pip install的环境里跑
-`streamlit run app.py`手动验证。
+`test_grammar_check_rules`会真实调用LanguageTool公共API（`grammar_check_node`
+内部逻辑），有软性网络依赖——调用失败/超时时`languagetool_check`静默返回空
+列表（见`src/agents/grammar_tools.py`），不会让测试报错，只是少测到一部分
+真实场景的问题类型，断言本身没有因为网络状态而变脆弱。
+
+**数据库读写测试不在这里**：本轮数据库从SQLite（标准库`sqlite3`）迁移到了
+PostgreSQL（需要`psycopg`包+本地跑着PostgreSQL服务），`db.save_submission`/
+`db.create_user`等不再是零依赖的，挪到了`scripts/e2e_graph_test.py`（那个
+脚本本来就需要pip环境），不要再指望这个脚本覆盖数据库读写。
+
+完整链路（含Graph编排、LLM生成、图片理解、数据库读写）需要在能pip install
+的环境里跑`scripts/e2e_graph_test.py`或`streamlit run app.py`手动验证。
 
 用法：
     python scripts/smoke_test_nodes.py
 """
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-
 from src.agents import nodes
-from src.storage import db
+from src.exam_types import GENERAL, IELTS, IELTS_TASK1, TOEFL
+from src.official_rubrics import normalize_rubric_result, parse_llm_json
 
 
 def test_intake_validator():
@@ -30,12 +38,39 @@ def test_intake_validator():
     print("intake_validator（正常长度）OK")
 
 
-def test_scoring_tool_stub():
-    state = {"essay_text": " ".join(["word"] * 200)}
-    result = nodes.scoring_tool_node(state)
-    assert 0.0 <= result["quant_score"] <= 1.0
-    assert set(result["trait_scores"].keys()) == {"content", "organization", "language"}
-    print("scoring_tool_node（占位启发式）OK:", result["quant_score"])
+def test_score_policies():
+    ielts = normalize_rubric_result(
+        IELTS,
+        {"rubric_scores": {"task_response": 7, "coherence_cohesion": 6,
+                           "lexical_resource": 7, "grammar_accuracy": 5},
+         "feedback_markdown": "ok"},
+    )
+    assert ielts["primary_score"] == 6.5
+    assert normalize_rubric_result(
+        TOEFL, {"rubric_scores": {"task_score": 4}, "feedback_markdown": "ok"}
+    )["primary_score"] == 4
+    general = normalize_rubric_result(
+        GENERAL,
+        {"rubric_scores": {"content_score": 20, "organization_score": 18,
+                           "language_score": 19, "grammar_score": 15},
+         "feedback_markdown": "ok"},
+    )
+    assert general["primary_score"] == 72
+    assert general["primary_max"] == 100.0
+    ielts_task1 = normalize_rubric_result(
+        IELTS,
+        {"rubric_scores": {"task_achievement": 6, "coherence_cohesion": 7,
+                           "lexical_resource": 6, "grammar_accuracy": 7}},
+        exam_subtype=IELTS_TASK1,
+    )
+    assert ielts_task1["primary_score"] == 6.5
+    assert ielts_task1["primary_label"] == "IELTS Writing Task 1 标准对照 Band（0–9）"
+    repaired = parse_llm_json(
+        '{"rubric_scores":{"task_score":2},"feedback_markdown":"第一行\n第二行"}'
+    )
+    assert repaired["rubric_scores"]["task_score"] == 2
+    assert "第二行" in repaired["feedback_markdown"]
+    print("GENERAL/IELTS/TOEFL的LLM量表评分测试 OK")
 
 
 def test_grammar_check_rules():
@@ -52,31 +87,8 @@ def test_grammar_check_rules():
     print(f"grammar_check_node（规则库）OK: 检测到{len(result['grammar_errors'])}处问题")
 
 
-def test_db_roundtrip():
-    with tempfile.TemporaryDirectory() as tmp:
-        db_path = Path(tmp) / "test.db"
-        state = {
-            "user_id": "test_user",
-            "essay_prompt_id": 1,
-            "quant_score": 0.75,
-            "trait_scores": {"content": 0.8, "organization": 0.7, "language": 0.75},
-            "qualitative_feedback": "test feedback",
-            "revision_plan": "test plan",
-        }
-        db.save_submission(state, db_path=db_path)
-        db.save_submission({**state, "quant_score": 0.85}, db_path=db_path)
-
-        history = db.get_user_history("test_user", db_path=db_path)
-        assert len(history) == 2, f"应该有2条记录，实际{len(history)}条"
-        assert history[0]["quant_score"] == 0.75
-        assert history[1]["quant_score"] == 0.85
-        assert history[0]["trait_scores"]["content"] == 0.8
-        print("db.save_submission / get_user_history 往返测试 OK")
-
-
 if __name__ == "__main__":
     test_intake_validator()
-    test_scoring_tool_stub()
+    test_score_policies()
     test_grammar_check_rules()
-    test_db_roundtrip()
     print("\n全部Day1无依赖冒烟测试通过。")
