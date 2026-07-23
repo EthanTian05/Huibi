@@ -955,3 +955,22 @@
 - **针对性单独验证`critic_agent_node`的"拒绝"和"强制放行"分支**（真实e2e跑的时候DeepSeek第一次生成的反馈质量就够好，没有真实触发过拒绝路径，光靠e2e不能证明"打回重写"这条代码路径本身是对的）：手写一段故意空泛套话的反馈（"内容丰富""语言流畅"这类不引用原文的评价）直接调用`critic_agent_node()`，真实返回`critic_approved: False`+具体到位的`critic_notes`（"反馈没有引用原文任何具体内容...建议也空洞不可执行"）、`critic_revision_count`从0变成1；再手动把`critic_revision_count`设成1重新调用，确认无条件放行、不再消耗一次LLM调用；再传空`feedback_dimensions`，确认同样直接放行。三条路径都在真实LLM调用下验证过，不是只测了"一路通过"这一种情况。
 
 **没有做的验证**：没有在真实的完整Graph里人为构造出"critic第一次拒绝→打回feedback_agent→第二次通过"这一整条链路的端到端案例（真实DeepSeek反馈质量目前还没在e2e测试里生成过一次不合格的结果，无法在不改造prompt强行制造低质量反馈的前提下触发这条路径），只在节点级别单独验证过“拒绝”分支本身的正确性。
+
+## 2026-07-23（第四十八轮）· 补pytest+CI，重写README，本地/GitHub状态对齐
+
+**背景**：用户问"当前项目是否完善、能否达到写简历的程度"。实际核对代码状态（不是凭对话记忆）后发现最紧急的问题不是"功能完不完善"，而是**GitHub上的仓库和本地实际状态严重脱节**：`origin/main`最新提交还停在"配置部署服务器SSH访问"那一轮，本地工作区有81个文件未提交，其中能看到`src/training/essay_scorer.py`这类CLAUDE.md里写明"已经删掉"的死代码——也就是说公开可见的仓库还挂着过时/不一致的内容。同时确认了两个真实缺口：没有自动化测试+CI、README只有26行没有任何截图。用户给出决定：①补轻量pytest+CI；②补充README；③直接把本地状态推到远程覆盖；④登录方式（PBKDF2）不用管。
+
+**做了什么**：
+1. **把81个未提交文件拆成6个有主题的commit**，不是一个大commit糊上去：①`refactor`删除自训练评分模型流水线（训练脚本/权重目录/EDA产物/课程阶段规划文档）；②`feat`新增LLM+RAG评分核心（`official_rubrics.py`/`exam_types.py`/RAG细则文件/`agents/`全链路节点，含上一轮的few-shot校准+CriticAgentNode）；③`feat`PostgreSQL持久化迁移；④`feat`Streamlit三页前端+`ui_theme.py`原创样式；⑤`test`验证脚本更新+依赖更新；⑥`docs`文档重构成4份精简文件。过程中发现`Docs/07`/`Docs/08`两个旧文档在git索引里有一条"陈旧的rename记录"（index显示rename，但对应的新文件名在磁盘上根本不存在）——核实确认这两份操作手册的内容早就被合并进`02-Progress.md`/`03-RUNNING.md`了，这条index记录只是历史遗留的记账残留，直接按删除处理，不是我这轮引入的问题。
+2. **新增轻量pytest套件**（`tests/`，24个用例）：覆盖打分归一化（`normalize_rubric_result`按考试类型/子类型的四种路径+分数越界裁剪+JSON修复）、作文长度校验边界、语法规则库检测、`CriticAgentNode`两条不需要LLM调用的短路分支（重试封顶后强制放行/空反馈直接放行）、LangGraph路由函数（`route_after_intake`/`route_after_critic`/`build_graph`节点注册）。全部不需要API Key或数据库，零外部依赖。
+3. **新增GitHub Actions CI**（`.github/workflows/tests.yml`）：每次push/PR只装`pytest`+`langgraph`两个轻量包（不装torch/chromadb/psycopg这些重依赖），跑`pytest -v`。完整链路的真实调用测试（`scripts/e2e_graph_test.py`，需要API Key+本地PostgreSQL）明确不放进CI，保持CI跑得快、免费、不需要密钥。
+4. **重写README.md**：加了Playwright真机截图（产品首页）、核心能力列表、架构表（节点流程图+技术选型）、CI徽章、pytest/CI使用说明、项目文档索引，原来只有26行纯文字、没有任何截图和自动化测试说明。
+5. **本地状态推送到GitHub，过程中发现并正确处理了一次远程分叉**：推送前`git fetch`发现`origin/main`比预期多了一个commit（`235f1ff`，GitHub网页端合并PR#1产生的merge commit），如果直接force-push会把这个merge commit记录抹掉。核实这个merge commit的内容（`cfb404b`）本来就已经在本地分支的线性历史里（`git merge-base --is-ancestor`确认），不是别人的独立新工作，于是用`git merge origin/main`（无冲突的干净合并，不引入任何新文件改动）把分叉合上，再正常`git push`（真正的fast-forward，全程没有用`--force`）推送`agent/project-updates`分支和`main`分支。
+
+**怎么验证的**：
+- pytest套件在`.venv-uv`（有langgraph）下24个用例全部通过；额外用`uv venv`建了一个只装`pytest`+`langgraph`两个包的全新临时venv（不装项目其余任何依赖），完整跑一遍套件同样24个全过——这一步是为了在推送前就确认CI workflow里`pip install pytest langgraph`这一行真的够用，不会推上去之后才发现CI环境缺依赖跑不过。
+- 每个commit分组之后用`git status --short`核对暂存内容和预期文件列表一致，避免误把无关文件卷进某个commit。
+- 推送前用`git rev-list --left-right --count origin/main...HEAD`确认是`0	N`（真正的fast-forward，不需要force）才执行`git push`，推送后重新`git fetch`+同样的rev-list命令确认变成`0 0`（本地和远程完全一致）。
+- **push之后用`gh run list`真实检查GitHub Actions的运行结果**，不是只假设workflow文件写对了就完事——两次push（分支+main）触发的CI都是`completed success`，确认workflow本身在GitHub真实环境里能跑通，不是本地模拟出来的假象。
+
+**没有做的验证**：没有回去改登录方式（用户明确说"不用管"）；没有验证pytest在完全没有langgraph、真正触发`test_graph_routing.py`里`pytest.importorskip`跳过路径的环境下的行为（这个环境本地两个Python环境都没装pytest且都能装成langgraph，没有构造出"pytest装了但langgraph没装"的场景，但`importorskip`是pytest标准API，行为有充分把握）。

@@ -13,11 +13,11 @@
 
 > 只保留最近一轮的浓缩汇报，更早的历史见`Progress.md`（每轮都有完整记录，不在这里累积）。
 
-**第四十七轮**：你对上一轮"模型是否建议微调/Agent编排是否太简单"的探讨给出了明确决定——①做few-shot prompting；②Agent编排加入反思循环。完成情况：①`src/agents/nodes.py`新增`_SCORE_FEW_SHOT_EXAMPLES`（GENERAL/TOEFL/IELTS Task2/IELTS Task1各一条"作文片段+正确评分+评分理由"），`SCORE_RUBRIC_PROMPT`按当前请求的考试类型只塞1条相关示例，用来校准打分尺度（不是解决JSON格式问题，那个已经有别的机制处理）。②新增`critic_agent_node`+`CRITIC_PROMPT`：`feedback_agent`产出反馈后复核一次（是否空泛套话/自相矛盾/建议不可执行），不合格打回`feedback_agent`重新生成（`FEEDBACK_ONLY_PROMPT`新增`{critic_revision_note}`把critic意见注入下一轮），封顶1次重试；`src/agents/graph.py`新增`route_after_critic()`路由，`src/agents/state.py`新增`critic_approved`/`critic_notes`/`critic_revision_count`三个字段。
+**第四十八轮**：你问"项目是否完善、能否达到写简历的程度"，实际核对后发现最紧急的问题是GitHub仓库和本地严重脱节（`origin/main`停在很早一轮，本地81个文件未提交，公开仓库还挂着已经删掉的自训练模型死代码）。你给出决定——①补轻量pytest+CI；②补README；③本地状态直接推送覆盖远程；④登录方式不用管。完成情况：①81个未提交文件拆成6个主题commit推送（删自训练模型流水线/LLM+RAG核心/PostgreSQL迁移/Streamlit前端/验证脚本/文档重构）；②新增`tests/`（24个零依赖用例，覆盖打分归一化/校验/语法规则库/CriticAgentNode短路分支/LangGraph路由）+`.github/workflows/tests.yml`（每次push跑，只装pytest+langgraph）；③README.md加了产品截图、核心能力、架构表、CI徽章、测试说明；④推送前发现`origin/main`比预期多一个GitHub网页合并PR产生的merge commit，确认其内容早就在本地历史里后用`git merge`（无冲突）而不是force-push合上分叉，全程fast-forward推送，没有用`--force`。
 
-**怎么验证的**：`smoke_test_nodes.py`（零依赖）确认新增代码没有引入重依赖；`.venv-uv`环境下`build_graph()`确认9个节点+两条critic相关的边正确注册；完整`e2e_graph_test.py`真实跑通（含真实DeepSeek调用），新增了`critic_approved`/`critic_revision_count`断言确认这个节点真的执行过（这次真实运行第一次生成的反馈就通过了复核，没有触发重写）；**额外针对性单独测试了`critic_agent_node`的"拒绝"和"强制放行"分支**（e2e跑的时候DeepSeek质量够好没有真实触发过拒绝路径，光测"一路通过"不能证明"打回重写"这条代码是对的）——手写明显空泛套话的反馈直接调用这个节点，真实返回`critic_approved: False`+具体到位的`notes`；把`revision_count`设成1后重新调用，确认无条件放行不再消耗LLM调用；传空`feedback_dimensions`确认同样直接放行。三条分支都在真实LLM调用下验证过。
+**怎么验证的**：pytest套件在`.venv-uv`和一个只装`pytest`+`langgraph`两个包的全新临时venv里都跑通（后者是为了在推送前确认CI里`pip install pytest langgraph`这行真的够用）；每个commit分组后用`git status`核对文件列表；推送前用`git rev-list --left-right --count`确认是真正的fast-forward才push；**push之后用`gh run list`真实检查GitHub Actions的运行结果**（不是只假设workflow文件写对了就完事），两次push触发的CI都是`completed success`。
 
-**没有做的验证**：没有在完整Graph里跑出一次真实的"critic第一次拒绝→打回feedback_agent→第二次通过"端到端案例（DeepSeek反馈质量目前还没在e2e测试里生成过真的不合格的结果），只在节点级别单独验证过拒绝分支本身。
+**没有做的验证**：没有验证`test_graph_routing.py`里`pytest.importorskip`在"pytest装了但langgraph没装"这种场景下的真实跳过行为（本地两个Python环境要么都没装pytest要么都能装成langgraph，没有构造出这个中间状态，但`importorskip`是pytest标准API，行为有充分把握）。
 
 ## 下一步
 （暂无）
