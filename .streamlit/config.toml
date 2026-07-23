@@ -1,0 +1,31 @@
+# 强制固定浅色主题，配色和src/ui_theme.py保持一致。
+#
+# 之前的bug：只用CSS把侧边栏/卡片背景强制成白色/浅灰，但没有同时固定
+# Streamlit自己的主题基色（base）。用户系统/浏览器是深色模式时，
+# Streamlit原生控件（侧边栏导航文字、输入框、tabs标签）会走深色主题的
+# 浅色文字配色，而我们的CSS又把背景强制成了浅色，导致"浅色文字+浅色
+# 背景"低对比度、几乎看不清（本轮实际发生过，见Docs/Progress.md）。
+# 用[theme]的base="light"强制整个应用固定浅色主题，不再随系统/浏览器
+# 深色模式切换，从根源解决这个问题。
+
+[theme]
+base = "light"
+primaryColor = "#1165A4"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F5F7FA"
+textColor = "#1D2129"
+font = "sans serif"
+
+[client]
+# 三页应用使用自定义顶部导航，避免用户因侧边栏折叠而找不到入口。
+showSidebarNavigation = false
+
+[server]
+# 关掉文件热重载监听：部署服务器上代码变更都是手动重启生效，不需要
+# Streamlit监听文件变化自动rerun。这个监听器会在每次import新模块时
+# （比如提交作文首次加载transformers/torch）遍历该模块的全部子模块找
+# 文件路径，transformers里一些依赖torchvision的可选子模块本机没装
+# torchvision，每次都会抛一遍ModuleNotFoundError被Streamlit捕获打印，
+# 单次批改能在streamlit.log里刷出上百行同样的噪音（deploy-server上
+# 实测过），关掉后日志干净很多，也省了这层无意义的扫描开销。
+fileWatcherType = "none"

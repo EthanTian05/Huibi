@@ -1,126 +1,83 @@
-"""慧笔 HuiBi —— Streamlit入口。四个页面：提交批改 / 反馈详情 /
-历史进步仪表盘 / 写作知识库问答，对应Docs/01-系统架构与Agent设计.md
-「前端页面设计」。
-
-现状：评分模型（scoring_tool_node）、RAG知识库（retrieval_agent_node）、
-语法检查（grammar_check_node）均已是真实实现（见src/agents/nodes.py顶部
-注释）；trait_scores三项都已经从整体分占位复制改成启发式信号（词汇丰富度/
-段落结构/语法错误密度），但仍不是训练出来的多头预测，见CLAUDE.md说明。
-
-运行：
-    streamlit run app.py
-"""
+"""慧笔 HuiBi 产品页：介绍核心能力并引导用户登录或进入工作台。"""
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
 import streamlit as st
 
-from src.agents.graph import build_graph
-from src.storage import db
+from src.ui_theme import inject_theme, render_footer, render_top_nav
 
-st.set_page_config(page_title="慧笔 HuiBi", layout="wide")
+st.set_page_config(page_title="慧笔 HuiBi · 英语写作智能批改", page_icon="✦", layout="wide")
+inject_theme()
+render_top_nav("product")
 
-if "graph" not in st.session_state:
-    st.session_state.graph = build_graph()
-if "last_result" not in st.session_state:
-    st.session_state.last_result = None
+st.markdown(
+    """
+    <div class="hb-hero">
+      <h1><span class="hb-hero-accent">慧笔 HuiBi：</span>雅思/托福/通用英语写作批改专家</h1>
+      <p>提交一篇作文，几分钟内拿到结构化评分、看得懂的修改意见，以及下一步该练什么。</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-st.title("慧笔 HuiBi —— 英语写作智能批改与个性化学习伴学智能体")
-st.caption("评分模型（微调DistilBERT+自建BiLSTM）/ RAG知识库 / 规则库语法检查均为真实实现，见README/CLAUDE.md")
+hero_left, hero_right = st.columns([0.95, 1.05], vertical_alignment="center")
+with hero_left:
+    checklist = [
+        "结合官方评分量表打分，不是拍脑袋给分",
+        "语法/用词/结构逐项指出，不只给一个总分",
+        "免费使用，登录后就能提交批改",
+    ]
+    for item in checklist:
+        st.markdown(
+            f'<div class="hb-check-pill"><span class="hb-check-pill-icon">✓</span>{item}</div>',
+            unsafe_allow_html=True,
+        )
+    st.write("")
+    st.page_link("pages/1_登录.py", label="开始使用慧笔", icon="🚀", use_container_width=False)
+with hero_right:
+    with st.container(border=True):
+        st.markdown("##### 📋 作文原文（示例）")
+        st.caption("this technology have change the way we study...")
+        st.markdown("---")
+        score_col, dim_col = st.columns([0.8, 1.2])
+        with score_col:
+            st.markdown(
+                '<div class="hb-score-number">88<span class="hb-score-max">/100</span></div>'
+                '<div class="hb-score-label">通用英语写作对照分</div>',
+                unsafe_allow_html=True,
+            )
+        with dim_col:
+            st.caption("结构与衔接 · 23/25")
+            st.caption("语法准确性 · 24/25")
+            st.caption("内容与任务完成 · 21/25")
+            st.caption("语言运用与词汇 · 20/25")
 
-page = st.sidebar.radio("页面", ["提交批改", "反馈详情", "历史进步仪表盘", "写作知识库问答"])
-user_id = st.sidebar.text_input("用户ID（演示用，同一ID可以看到历史进步曲线）", value="demo_user")
+st.markdown('<h2 class="hb-section-title">核心优势</h2>', unsafe_allow_html=True)
+st.markdown('<p class="hb-section-subtitle">少花时间猜错在哪里，把时间用在真正能提升写作的地方。</p>', unsafe_allow_html=True)
 
-if page == "提交批改":
-    st.header("提交批改")
-    essay_prompt_id = st.number_input(
-        "题目集ID（对应ASAP-AES的essay_set，Day1先随便填）", min_value=1, max_value=8, value=1
-    )
-    essay_text = st.text_area("粘贴你的英语作文", height=300)
-    if st.button("提交批改", type="primary"):
-        if not essay_text.strip():
-            st.warning("请先粘贴作文内容")
-        else:
-            with st.spinner("多智能体正在处理：校验 → 检索 → 评分 → 语法检查 → 定性反馈 → 个性化辅导..."):
-                history = db.get_user_history(user_id)
-                result = st.session_state.graph.invoke(
-                    {
-                        "user_id": user_id,
-                        "essay_text": essay_text,
-                        "essay_prompt_id": int(essay_prompt_id),
-                        "history_summary": {"submission_count": len(history)} if history else None,
-                    }
-                )
-            st.session_state.last_result = result
-            if result.get("is_valid") is False:
-                st.error(f"提交未通过校验：{result.get('reject_reason')}")
-            else:
-                st.success("处理完成，请切换到「反馈详情」页查看结果")
+advantages = [
+    ("🎯", "知道自己在哪个水平", "结合雅思Band Descriptors、托福ETS评分指南等公开量表打分，先帮你快速判断这篇作文的大致表现。"),
+    ("🛠️", "知道具体哪里要改", "不只给总分，也会指出语法、表达和结构中值得优先修改的地方，中英双语说明。"),
+    ("📈", "知道下一步练什么", "根据本次暴露的问题给出练习方向和针对性题目，让下一次写作更有的放矢。"),
+    ("📊", "看得见自己的进步", "保存历次结果和常见问题，用趋势图帮助你发现正在变好的地方和仍需加强的部分。"),
+]
+row1 = st.columns(2)
+row2 = st.columns(2)
+for col, (icon, title, desc) in zip(row1 + row2, advantages):
+    with col:
+        st.markdown(
+            f'<div class="hb-card"><span class="hb-badge">{icon}</span>'
+            f'<h4>{title}</h4><p>{desc}</p></div>',
+            unsafe_allow_html=True,
+        )
 
-elif page == "反馈详情":
-    st.header("反馈详情")
-    result = st.session_state.last_result
-    if not result or result.get("is_valid") is False:
-        st.info("还没有可展示的反馈，请先在「提交批改」页提交一篇作文")
-    else:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("量化评分（A:0.95微调DistilBERT + B:0.05自建BiLSTM）", f"{result.get('quant_score', 0):.2f}")
-        with col2:
-            traits = result.get("trait_scores", {})
-            if traits:
-                st.write("分项评分（均为启发式信号驱动，非训练出的多头预测，见CLAUDE.md）：", traits)
-        st.subheader("定性反馈")
-        st.write(result.get("qualitative_feedback", ""))
-        st.subheader("个性化修改建议与练习推荐")
-        st.write(result.get("revision_plan", ""))
-        grammar_errors = result.get("grammar_errors", [])
-        st.subheader(f"检测到的语法/用词问题（规则库，共{len(grammar_errors)}处）")
-        if grammar_errors:
-            st.dataframe(pd.DataFrame(grammar_errors)[["type", "message", "context", "suggestion"]])
-        else:
-            st.caption("未检测到规则库覆盖范围内的问题")
+st.markdown(
+    """
+    <div class="hb-closing-panel">
+      <h2>准备好查看你的写作反馈了吗？</h2>
+      <p>通过页面顶部导航登录或进入工作台，提交作文并查看评分、反馈与进步记录。</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-elif page == "历史进步仪表盘":
-    st.header("历史进步仪表盘")
-    history = db.get_user_history(user_id)
-    if not history:
-        st.info("该用户暂无历史提交记录")
-    else:
-        history_df = pd.DataFrame(history)
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("评分趋势")
-            st.line_chart(history_df.set_index("created_at")["quant_score"])
-        with col2:
-            st.subheader("最近一次分项雷达图")
-            latest_traits = history_df.iloc[-1]["trait_scores"]
-            if latest_traits:
-                import matplotlib.pyplot as plt
-
-                labels = list(latest_traits.keys())
-                values = list(latest_traits.values())
-                angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
-                values_closed = values + values[:1]
-                angles_closed = angles + angles[:1]
-                fig, ax = plt.subplots(figsize=(3.5, 3.5), subplot_kw={"polar": True})
-                ax.plot(angles_closed, values_closed, linewidth=2)
-                ax.fill(angles_closed, values_closed, alpha=0.25)
-                ax.set_xticks(angles)
-                ax.set_xticklabels(labels)
-                ax.set_ylim(0, 1)
-                st.pyplot(fig)
-                st.caption(
-                    "三轴都是启发式信号驱动（词汇丰富度/段落结构/语法错误密度），"
-                    "不是训练出来的多头预测，见CLAUDE.md"
-                )
-        st.dataframe(history_df)
-
-elif page == "写作知识库问答":
-    st.header("写作知识库问答")
-    st.info(
-        "Day2接入：RAG知识库（评分细则/语法卡片/范文）尚未构建，"
-        "见Docs/01-系统架构与Agent设计.md和src/rag/build_kb.py"
-    )
-    st.text_input("问题（占位，暂不可用）", disabled=True)
+render_footer()
