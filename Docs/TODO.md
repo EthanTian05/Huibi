@@ -13,9 +13,9 @@
 
 > 只保留最近一轮的浓缩汇报，更早的历史见`Progress.md`（每轮都有完整记录，不在这里累积）。
 
-**第四十八轮**：你问"项目是否完善、能否达到写简历的程度"，实际核对后发现最紧急的问题是GitHub仓库和本地严重脱节（`origin/main`停在很早一轮，本地81个文件未提交，公开仓库还挂着已经删掉的自训练模型死代码）。你给出决定——①补轻量pytest+CI；②补README；③本地状态直接推送覆盖远程；④登录方式不用管。完成情况：①81个未提交文件拆成6个主题commit推送（删自训练模型流水线/LLM+RAG核心/PostgreSQL迁移/Streamlit前端/验证脚本/文档重构）；②新增`tests/`（24个零依赖用例，覆盖打分归一化/校验/语法规则库/CriticAgentNode短路分支/LangGraph路由）+`.github/workflows/tests.yml`（每次push跑，只装pytest+langgraph）；③README.md加了产品截图、核心能力、架构表、CI徽章、测试说明；④推送前发现`origin/main`比预期多一个GitHub网页合并PR产生的merge commit，确认其内容早就在本地历史里后用`git merge`（无冲突）而不是force-push合上分叉，全程fast-forward推送，没有用`--force`。
+**第四十九轮**：你截图反馈GitHub的Contributors列表里出现了"claude"，要求不要有这种情况。根因是上一轮11个commit都带了`Co-Authored-By: Claude Sonnet 5`这行trailer，GitHub据此把Claude算成了独立贡献者。这几个commit已经推到远程，去掉trailer必须重写历史+force-push——**先用`AskUserQuestion`确认要不要现在执行**（改写已公开历史是有风险的操作），用户选择"重写并force-push两个分支"后才动手：`git filter-branch --msg-filter`删trailer（只改提交信息，不改任何文件树内容，用`git diff`确认过内容零差异），`git push --force-with-lease`（不是裸`--force`）推送`main`和`agent/project-updates`。**这轮开始的commit已经不再带Co-Authored-By trailer**，避免同样的问题再发生。
 
-**怎么验证的**：pytest套件在`.venv-uv`和一个只装`pytest`+`langgraph`两个包的全新临时venv里都跑通（后者是为了在推送前确认CI里`pip install pytest langgraph`这行真的够用）；每个commit分组后用`git status`核对文件列表；推送前用`git rev-list --left-right --count`确认是真正的fast-forward才push；**push之后用`gh run list`真实检查GitHub Actions的运行结果**（不是只假设workflow文件写对了就完事），两次push触发的CI都是`completed success`。
+**怎么验证的**：`git diff refs/original/refs/heads/agent/project-updates agent/project-updates --stat`确认重写前后文件树内容完全一致；`git log --grep="Co-Authored-By: Claude"`确认真正的分支引用下（不是filter-branch自动生成的备份引用）已经查不到这行；`gh run list`确认force-push之后GitHub Actions两个分支仍然是`completed success`。
 
 **没有做的验证**：没有验证`test_graph_routing.py`里`pytest.importorskip`在"pytest装了但langgraph没装"这种场景下的真实跳过行为（本地两个Python环境要么都没装pytest要么都能装成langgraph，没有构造出这个中间状态，但`importorskip`是pytest标准API，行为有充分把握）。
 

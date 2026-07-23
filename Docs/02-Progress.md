@@ -974,3 +974,11 @@
 - **push之后用`gh run list`真实检查GitHub Actions的运行结果**，不是只假设workflow文件写对了就完事——两次push（分支+main）触发的CI都是`completed success`，确认workflow本身在GitHub真实环境里能跑通，不是本地模拟出来的假象。
 
 **没有做的验证**：没有回去改登录方式（用户明确说"不用管"）；没有验证pytest在完全没有langgraph、真正触发`test_graph_routing.py`里`pytest.importorskip`跳过路径的环境下的行为（这个环境本地两个Python环境都没装pytest且都能装成langgraph，没有构造出"pytest装了但langgraph没装"的场景，但`importorskip`是pytest标准API，行为有充分把握）。
+
+## 2026-07-23（第四十九轮）· 去掉GitHub Contributors里的Claude
+
+**背景**：用户截图反馈GitHub仓库的Contributors列表里出现了"claude"这个贡献者，明确要求"不要有这种情况"。根因是上一轮开始我提交的11个commit（`a55fe55`到`a58a5e0`，含1个merge commit）里都带了`Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>`这行trailer，GitHub据此把Claude识别成独立贡献者展示出来。
+
+**做了什么**：这11个commit当时已经推到了GitHub的`main`和`agent/project-updates`两个分支，去掉trailer必须重写提交信息+force-push覆盖远程——这是改写已公开历史的操作，**先用`AskUserQuestion`向用户확认是否现在执行**，用户选择"重写并force-push两个分支"后才动手。用`git filter-branch -f --msg-filter`（范围`a55fe55^..agent/project-updates`）删掉trailer行并清理多余空行，只改提交信息不改任何文件树内容；确认作者/提交者身份全程都是用户自己的`EthanTian05`（trailer是唯一的Claude痕迹来源）；`git branch -f main agent/project-updates`让本地`main`同步到重写后的历史；`git push --force-with-lease`（不是裸`--force`，多一层"远程没有被别人再动过"的安全检查）分别推送两个分支。
+
+**怎么验证的**：`git diff refs/original/refs/heads/agent/project-updates agent/project-updates --stat`确认重写前后文件树内容完全一致（无输出=零差异），只有commit hash和消息变了；`git log --all --grep="Co-Authored-By: Claude"`重写后只在`refs/original/*`这个filter-branch自动生成的备份引用里还能查到（已用`git update-ref -d`清理掉），真正的分支引用下已经查不到；重新`git fetch`后确认`origin/main`/`origin/agent/project-updates`都是重写后的新hash；`gh run list`确认force-push触发的GitHub Actions两个分支都还是`completed success`（重写没有破坏CI）；本地`scripts/smoke_test_nodes.py`也重跑确认过一遍工作区文件没有因为filter-branch的checkout动作出现异常。
